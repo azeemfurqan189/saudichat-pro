@@ -1,4 +1,4 @@
-import prisma from '../../backend/src/utils/prisma';
+import prisma from '../../saudichat-pro/backend/src/utils/prisma';
 import { detectIntent, detectSentiment, generateAIResponse } from '../services/ai';
 import { mapSaudiDialect } from '../utils/dialect';
 import { welcomeFlow } from './welcome';

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import prisma from '../../backend/src/utils/prisma';
+import prisma from '../../saudichat-pro/backend/src/utils/prisma';
 import { routeMessage } from '../flows/router';
 
 interface WhatsAppMessage {

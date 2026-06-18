@@ -1,4 +1,4 @@
-import prisma from '../../backend/src/utils/prisma';
+import prisma from '../../saudichat-pro/backend/src/utils/prisma';
 import { sendBotMessage } from './router';
 
 export async function orderFlow(
