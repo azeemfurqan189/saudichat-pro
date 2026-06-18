@@ -2,14 +2,13 @@
 
 ## Problem
 
-GitHub repo mein **2 branches** hain, structure **alag** hai:
+GitHub repo root par code directly hai (`backend/`, `frontend/`). Agar Railway **Root Directory** purana path use kare:
 
-| Branch | Backend path |
-|--------|----------------|
-| **main** (latest code) | `saudichat-pro/backend` |
-| **master** (purana) | `backend` (root par) |
+```
+saudichat-pro/backend   ← galat (folder nahi tha)
+```
 
-Agar Railway **master** branch use kare aur Root Directory **`saudichat-pro/backend`** ho → yeh error aata hai:
+To yeh error aata hai:
 
 ```
 directory .../saudichat-pro/backend does not exist
@@ -17,20 +16,29 @@ directory .../saudichat-pro/backend does not exist
 
 ---
 
-## Fix — Railway Dashboard (2 minute)
+## Fix A — Code shim (auto, recommended)
 
-1. https://railway.app → apna project kholo
-2. **Backend service** click karo
-3. **Settings** tab
+Repo mein `saudichat-pro/backend/` entrypoint add ho chuka hai jo asli `backend/` build/start karta hai.
 
-### Setting 1 — Branch
-- **Source → Branch:** `main` (master NAHI)
-
-### Setting 2 — Root Directory
+Railway settings:
+- **Branch:** `main`
 - **Root Directory:** `saudichat-pro/backend`
 
-4. **Save**
-5. **Deployments → Redeploy** (ya push se auto deploy)
+Push ke baad **Redeploy** — build pass hona chahiye.
+
+---
+
+## Fix B — Railway Dashboard (simpler path)
+
+1. https://railway.app → apna project kholo
+2. **Backend service** → **Settings**
+
+| Setting | Value |
+|---------|-------|
+| Branch | `main` |
+| Root Directory | `backend` |
+
+3. **Save** → **Redeploy**
 
 ---
 

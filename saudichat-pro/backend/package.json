@@ -1,0 +1,13 @@
+{
+  "name": "saudichat-pro-backend-entry",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Railway entrypoint — builds and runs ../../backend",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "cd ../../backend && npm install && npm run build",
+    "start": "cd ../../backend && npm start"
+  }
+}
