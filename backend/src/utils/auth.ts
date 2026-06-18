@@ -41,6 +41,15 @@ export function generateOrderNumber(): string {
   return `ORD-${prefix}-${random}`;
 }
 
+/** Normalize to E.164-style +XXXXXXXX */
+export function normalizePhone(phone: string): string {
+  const trimmed = phone.trim();
+  if (!trimmed) return trimmed;
+  if (trimmed.startsWith('+')) return trimmed.replace(/\s/g, '');
+  const digits = trimmed.replace(/\D/g, '');
+  return digits ? `+${digits}` : trimmed;
+}
+
 export function generateOTP(): string {
   return Math.floor(1000 + Math.random() * 9000).toString();
 }

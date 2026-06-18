@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AuthGuard } from "@/components/dashboard/auth-guard";
 import { Sidebar } from "@/components/shared/sidebar";
@@ -10,9 +10,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useApp } from "@/lib/context";
 import { t } from "@/lib/i18n";
+import { useBusinessSocket } from "@/hooks/use-business-socket";
+import { getDefaultDashboardPath, MemberRole } from "@/lib/industry-config";
+import { useIsManpowerTheme } from "@/hooks/use-is-manpower-theme";
+import { cn } from "@/lib/utils";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const businessId = params.businessId as string;
   const { locale } = useApp();
   const [collapsed, setCollapsed] = useState(false);
@@ -36,17 +42,36 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   });
 
   const businesses = meData?.businesses ?? (business ? [business] : []);
+  const currentBusiness = businesses.find((b) => b.id === businessId) ?? business;
+  const memberRole = (currentBusiness?.memberRole as MemberRole) || "OWNER";
   const businessName =
     locale === "ar" && business?.nameAr ? business.nameAr : business?.name;
+  const resolvedBusinessType = business?.type ?? currentBusiness?.type;
+  const isManpower = useIsManpowerTheme(businessId, resolvedBusinessType);
+
+  useBusinessSocket(businessId);
+
+  useEffect(() => {
+    if (!businessId || !memberRole) return;
+    const overviewPath = `/dashboard/${businessId}`;
+    if (
+      (memberRole === "OFFICE_STAFF" || memberRole === "FIELD_WORKER") &&
+      pathname === overviewPath
+    ) {
+      router.replace(getDefaultDashboardPath(memberRole, businessId));
+    }
+  }, [businessId, memberRole, pathname, router]);
 
   const loading = meLoading || businessLoading;
 
   return (
     <AuthGuard>
-      <div className="flex min-h-screen">
+      <div className={cn("flex min-h-screen", isManpower && "manpower-theme")} suppressHydrationWarning>
         <Sidebar
           businessId={businessId}
           businesses={businesses}
+          businessType={resolvedBusinessType}
+          memberRole={memberRole}
           collapsed={collapsed}
           onCollapsedChange={setCollapsed}
           mobileOpen={mobileOpen}
@@ -58,9 +83,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             businessId={businessId}
             businessName={businessName}
             onMenuClick={() => setMobileOpen(true)}
+            light={isManpower}
           />
 
-          <main className="flex-1 p-4 md:p-6 overflow-auto">
+          <main className={cn("flex-1 p-4 md:p-6 overflow-auto", isManpower && "bg-[#FAFAF8]")}>
             {loading ? (
               <div className="space-y-6">
                 <Skeleton className="h-8 w-48" />

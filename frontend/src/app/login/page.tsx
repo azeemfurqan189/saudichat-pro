@@ -13,6 +13,7 @@ import { api } from "@/lib/api";
 import { DEFAULT_COUNTRY, buildFullPhone, isValidInternationalPhone } from "@/lib/country-codes";
 import { getRememberedPhone, setRememberedPhone } from "@/lib/auth-storage";
 import { warmupApi } from "@/lib/api-config";
+import { getDefaultDashboardPath, MemberRole } from "@/lib/industry-config";
 
 export default function LoginPage() {
   const { locale } = useApp();
@@ -57,7 +58,12 @@ export default function LoginPage() {
         localStorage.setItem("user", JSON.stringify(res.data.user));
         toast.success(isAr ? "تم تسجيل الدخول" : "Logged in successfully");
         const business = res.data.businesses[0];
-        router.push(business ? `/dashboard/${business.id}` : "/setup");
+        if (business) {
+          const role = (business.memberRole as MemberRole) || "OWNER";
+          router.push(getDefaultDashboardPath(role, business.id));
+        } else {
+          router.push("/setup");
+        }
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Login failed");

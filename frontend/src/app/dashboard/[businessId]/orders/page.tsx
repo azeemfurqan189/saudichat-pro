@@ -105,6 +105,19 @@ function OrderDrawer({
             )}
           </div>
 
+          {order.deliveryAddress && (
+            <div className="glass-card !p-4 !scale-100">
+              <p className="text-sm text-muted-foreground mb-1">
+                {locale === "ar" ? "عنوان التوصيل" : "Delivery Address"}
+              </p>
+              <p className="text-sm">
+                {typeof order.deliveryAddress === "object" && order.deliveryAddress !== null
+                  ? String((order.deliveryAddress as Record<string, unknown>).text || JSON.stringify(order.deliveryAddress))
+                  : String(order.deliveryAddress)}
+              </p>
+            </div>
+          )}
+
           {/* Items */}
           <div>
             <h3 className="font-semibold mb-3">{locale === "ar" ? "العناصر" : "Items"}</h3>
@@ -211,6 +224,7 @@ export default function OrdersPage() {
       const res = await api.getOrders(businessId, params);
       return res.data ?? [];
     },
+    refetchInterval: 15000,
   });
 
   const statusMutation = useMutation({

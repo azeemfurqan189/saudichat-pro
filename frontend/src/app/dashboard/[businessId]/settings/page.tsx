@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -14,6 +15,13 @@ import {
   CreditCard,
   Plus,
   Trash2,
+  Bot,
+  Store,
+  Globe,
+  Share2,
+  Shield,
+  Mail,
+  Smartphone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,18 +32,57 @@ import { useApp } from "@/lib/context";
 import { t } from "@/lib/i18n";
 import { api, AutoReply, Staff } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useIsManpowerTheme } from "@/hooks/use-is-manpower-theme";
+import { ManpowerHeroHeader, ManpowerPageShell } from "@/components/dashboard/manpower-shell";
+import { IndustryProfileForm } from "@/components/dashboard/industry-profile-form";
+import { WebsiteImportPanel } from "@/components/dashboard/website-import-panel";
+import {
+  getProfileTabLabel,
+  getAutoReplySuggestions,
+  getProfileFields,
+  normalizeBusinessType,
+} from "@/lib/industry-config";
 
-type Tab = "general" | "whatsapp" | "hours" | "autoReplies" | "notifications" | "team" | "billing";
+type Tab =
+  | "general"
+  | "profile"
+  | "website"
+  | "whatsapp"
+  | "integrations"
+  | "aiBot"
+  | "hours"
+  | "autoReplies"
+  | "notifications"
+  | "team"
+  | "compliance"
+  | "billing";
 
-const TABS: { id: Tab; labelEn: string; labelAr: string; icon: typeof Settings }[] = [
+const BASE_TABS: { id: Tab; labelEn: string; labelAr: string; icon: typeof Settings }[] = [
   { id: "general", labelEn: "General", labelAr: "عام", icon: Settings },
+  { id: "profile", labelEn: "Profile", labelAr: "الملف", icon: Store },
+  { id: "website", labelEn: "Website Import", labelAr: "استيراد الموقع", icon: Globe },
   { id: "whatsapp", labelEn: "WhatsApp", labelAr: "واتساب", icon: MessageCircle },
+  { id: "integrations", labelEn: "Integrations", labelAr: "التكاملات", icon: Share2 },
+  { id: "aiBot", labelEn: "AI Bot", labelAr: "بوت AI", icon: Bot },
   { id: "hours", labelEn: "Working Hours", labelAr: "ساعات العمل", icon: Clock },
   { id: "autoReplies", labelEn: "Auto-Replies", labelAr: "ردود تلقائية", icon: Zap },
   { id: "notifications", labelEn: "Notifications", labelAr: "إشعارات", icon: Bell },
   { id: "team", labelEn: "Team", labelAr: "الفريق", icon: Users },
+  { id: "compliance", labelEn: "PDPL Compliance", labelAr: "امتثال PDPL", icon: Shield },
   { id: "billing", labelEn: "Billing", labelAr: "الفواتير", icon: CreditCard },
 ];
+
+function formatWorkingHoursText(
+  hours: Array<{ day: number; open: string; close: string; closed: boolean }>,
+  dayLabels: string[]
+): string {
+  return hours
+    .map((h, i) => {
+      if (h.closed) return `${dayLabels[i]}: Closed`;
+      return `${dayLabels[i]}: ${h.open} - ${h.close}`;
+    })
+    .join("; ");
+}
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAYS_AR = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
@@ -43,13 +90,31 @@ const DAYS_AR = ["الأحد", "الإثنين", "الثلاثاء", "الأرب
 export default function SettingsPage() {
   const params = useParams();
   const businessId = params.businessId as string;
+  const searchParams = useSearchParams();
   const { locale } = useApp();
   const isAr = locale === "ar";
   const queryClient = useQueryClient();
 
-  const [tab, setTab] = useState<Tab>("general");
+  const initialTab = searchParams.get("tab");
+  const validTabs: Tab[] = [
+    "general", "profile", "website", "whatsapp", "integrations", "aiBot", "hours",
+    "autoReplies", "notifications", "team", "compliance", "billing",
+  ];
+  const [tab, setTab] = useState<Tab>(
+    validTabs.includes(initialTab as Tab) ? (initialTab as Tab) : "general"
+  );
   const [generalForm, setGeneralForm] = useState({ name: "", nameAr: "", description: "" });
-  const [whatsappForm, setWhatsappForm] = useState({ phoneId: "", token: "", number: "" });
+  const [profileSettings, setProfileSettings] = useState<Record<string, string>>({});
+  const [whatsappForm, setWhatsappForm] = useState({
+    phoneId: "",
+    token: "",
+    number: "",
+    provider: "whapi" as "meta" | "whapi",
+  });
+  const [botForm, setBotForm] = useState({
+    greeting: "",
+    language: "both",
+  });
   const [hours, setHours] = useState(
     DAYS.map((_, i) => ({ day: i, open: "09:00", close: "22:00", closed: i === 5 }))
   );
@@ -58,6 +123,13 @@ export default function SettingsPage() {
     responseAr: "",
     responseEn: "",
   });
+  const [channelForms, setChannelForms] = useState({
+    email: { smtpHost: "", smtpUser: "", smtpPass: "", fromEmail: "" },
+    sms: { apiKey: "", senderId: "" },
+    instagram: { pageId: "", accessToken: "" },
+    facebook: { pageId: "", accessToken: "" },
+  });
+  const [pdplForm, setPdplForm] = useState({ enabled: false, dataRetentionDays: 365 });
 
   const { data: business, isLoading: businessLoading } = useQuery({
     queryKey: ["business", businessId],
@@ -66,6 +138,7 @@ export default function SettingsPage() {
       return res.data;
     },
   });
+  const isManpower = useIsManpowerTheme(businessId, business?.type);
 
   useEffect(() => {
     if (business) {
@@ -74,12 +147,52 @@ export default function SettingsPage() {
         nameAr: business.nameAr || "",
         description: business.description || "",
       });
-      setWhatsappForm((prev) => ({
-        ...prev,
+      const settings = (business.settings || {}) as Record<string, unknown>;
+      const type = normalizeBusinessType(business.type);
+      const profileKeys = getProfileFields(type).map((f) => f.key);
+      const profile: Record<string, string> = {};
+      for (const key of profileKeys) {
+        const v = settings[key];
+        if (v !== undefined && v !== null) profile[key] = String(v);
+      }
+      setProfileSettings(profile);
+
+      const savedHours = settings.workingHours;
+      if (Array.isArray(savedHours) && savedHours.length === 7) {
+        setHours(
+          savedHours.map((h: { day?: number; open?: string; close?: string; closed?: boolean }, i: number) => ({
+            day: h.day ?? i,
+            open: h.open || "09:00",
+            close: h.close || "22:00",
+            closed: h.closed ?? false,
+          }))
+        );
+      }
+
+      const waSettings = settings;
+      setWhatsappForm({
         number: business.whatsappNumber || "",
-      }));
+        phoneId: business.whatsappPhoneId || "",
+        token: "",
+        provider: waSettings.whatsappProvider === "meta" ? "meta" : "whapi",
+      });
+      setBotForm({
+        greeting: String(settings.botGreeting || ""),
+        language: String(settings.botLanguage || "both"),
+      });
     }
   }, [business]);
+
+  const businessType = normalizeBusinessType(business?.type);
+  const tabs = BASE_TABS.map((t) =>
+    t.id === "profile"
+      ? {
+          ...t,
+          labelEn: getProfileTabLabel(businessType, "en"),
+          labelAr: getProfileTabLabel(businessType, "ar"),
+        }
+      : t
+  );
 
   const { data: autoReplies = [], isLoading: autoLoading } = useQuery({
     queryKey: ["auto-replies", businessId],
@@ -105,6 +218,69 @@ export default function SettingsPage() {
     },
   });
 
+  const { data: channels } = useQuery({
+    queryKey: ["channels", businessId],
+    queryFn: async () => (await api.getChannels(businessId)).data,
+  });
+
+  const { data: compliance } = useQuery({
+    queryKey: ["compliance", businessId],
+    queryFn: async () => (await api.getComplianceStatus(businessId)).data,
+  });
+
+  useEffect(() => {
+    if (channels) {
+      setChannelForms({
+        email: {
+          smtpHost: String(channels.email?.config?.smtpHost || ""),
+          smtpUser: String(channels.email?.config?.smtpUser || ""),
+          smtpPass: "",
+          fromEmail: String(channels.email?.config?.fromEmail || ""),
+        },
+        sms: {
+          apiKey: "",
+          senderId: String(channels.sms?.config?.senderId || ""),
+        },
+        instagram: {
+          pageId: String(channels.instagram?.config?.pageId || ""),
+          accessToken: "",
+        },
+        facebook: {
+          pageId: String(channels.facebook?.config?.pageId || ""),
+          accessToken: "",
+        },
+      });
+    }
+  }, [channels]);
+
+  useEffect(() => {
+    if (compliance) {
+      setPdplForm({
+        enabled: compliance.pdplEnabled,
+        dataRetentionDays: compliance.dataRetentionDays,
+      });
+    }
+  }, [compliance]);
+
+  const updateChannelMutation = useMutation({
+    mutationFn: ({ channel, data }: { channel: string; data: { isEnabled?: boolean; config?: Record<string, unknown> } }) =>
+      api.updateChannel(businessId, channel, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channels", businessId] });
+      toast.success(isAr ? "تم الحفظ" : "Channel saved");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const updateComplianceMutation = useMutation({
+    mutationFn: (data: Record<string, unknown>) => api.updateComplianceSettings(businessId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["compliance", businessId] });
+      toast.success(isAr ? "تم حفظ إعدادات PDPL" : "PDPL settings saved");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   const updateBusinessMutation = useMutation({
     mutationFn: (data: Parameters<typeof api.updateBusiness>[1]) =>
       api.updateBusiness(businessId, data),
@@ -117,7 +293,13 @@ export default function SettingsPage() {
 
   const testWhatsAppMutation = useMutation({
     mutationFn: () => api.testWhatsApp(businessId, whatsappForm.phoneId, whatsappForm.token),
-    onSuccess: () => toast.success(isAr ? "الاتصال ناجح" : "Connection successful"),
+    onSuccess: (res) => {
+      if (res.success) {
+        toast.success(res.message || (isAr ? "الاتصال ناجح" : "Connection successful"));
+      } else {
+        toast.error(res.message || (isAr ? "فشل الاتصال" : "Connection failed"));
+      }
+    },
     onError: (err: Error) => toast.error(err.message),
   });
 
@@ -131,6 +313,20 @@ export default function SettingsPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const { data: aiSettings } = useQuery({
+    queryKey: ["ai-settings", businessId],
+    queryFn: async () => (await api.getAiSettings(businessId)).data,
+  });
+
+  const updateAiSettingsMutation = useMutation({
+    mutationFn: (data: Parameters<typeof api.updateAiSettings>[1]) => api.updateAiSettings(businessId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai-settings", businessId] });
+      toast.success(isAr ? "تم حفظ إعدادات البوت" : "AI Bot settings saved");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
   const deleteAutoReplyMutation = useMutation({
     mutationFn: (id: string) => api.deleteAutoReply(businessId, id),
     onSuccess: () => {
@@ -139,16 +335,48 @@ export default function SettingsPage() {
     },
   });
 
+  const handleSaveProfile = () => {
+    const prev = (business?.settings || {}) as Record<string, unknown>;
+    updateBusinessMutation.mutate({
+      settings: { ...prev, ...profileSettings },
+    });
+  };
+
+  const handleSaveHours = () => {
+    const prev = (business?.settings || {}) as Record<string, unknown>;
+    const dayLabels = isAr ? DAYS_AR : DAYS;
+    updateBusinessMutation.mutate({
+      settings: {
+        ...prev,
+        workingHours: hours,
+        workingHoursText: formatWorkingHoursText(hours, dayLabels),
+      },
+    });
+  };
+
   const handleSaveGeneral = (e: React.FormEvent) => {
     e.preventDefault();
     updateBusinessMutation.mutate(generalForm);
   };
 
   const handleSaveWhatsApp = () => {
+    const prev = (business?.settings || {}) as Record<string, unknown>;
     updateBusinessMutation.mutate({
       whatsappNumber: whatsappForm.number,
-      whatsappPhoneId: whatsappForm.phoneId,
-      whatsappToken: whatsappForm.token,
+      whatsappPhoneId: whatsappForm.phoneId.trim(),
+      ...(whatsappForm.token.trim() ? { whatsappToken: whatsappForm.token.trim() } : {}),
+      settings: { ...prev, whatsappProvider: whatsappForm.provider },
+    });
+  };
+
+  const handleSaveBot = () => {
+    const prev = (business?.settings || {}) as Record<string, unknown>;
+    updateBusinessMutation.mutate({
+      settings: {
+        ...prev,
+        botGreeting: botForm.greeting.trim() || undefined,
+        botLanguage: botForm.language,
+      },
     });
   };
 
@@ -156,7 +384,7 @@ export default function SettingsPage() {
     e.preventDefault();
     createAutoReplyMutation.mutate({
       triggerKeywords: autoReplyForm.keywords.split(",").map((k) => k.trim()).filter(Boolean),
-      triggerType: "keyword",
+      triggerType: "CONTAINS",
       responseAr: autoReplyForm.responseAr,
       responseEn: autoReplyForm.responseEn,
       priority: autoReplies.length,
@@ -164,25 +392,35 @@ export default function SettingsPage() {
     });
   };
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">{t(locale, "dashboard", "settings")}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {isAr ? "إعدادات المنشأة" : "Business configuration"}
-        </p>
-      </div>
+  const settingsContent = (
+    <>
+      {isManpower ? (
+        <ManpowerHeroHeader
+          title={t(locale, "dashboard", "settings")}
+          subtitle={isAr ? "إعدادات المنشأة" : "Business configuration"}
+          icon={Settings}
+        />
+      ) : (
+        <div>
+          <h1 className="text-2xl font-bold">{t(locale, "dashboard", "settings")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {isAr ? "إعدادات المنشأة" : "Business configuration"}
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-col lg:flex-row gap-6">
         <nav className="lg:w-56 shrink-0 flex lg:flex-col gap-2 overflow-x-auto pb-1 lg:pb-0">
-          {TABS.map(({ id, labelEn, labelAr, icon: Icon }) => (
+          {tabs.map(({ id, labelEn, labelAr, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
               className={cn(
                 "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all",
                 tab === id
-                  ? "bg-gradient-primary text-white shadow-glow-green"
+                  ? isManpower
+                    ? "bg-[#1D9E75] text-white"
+                    : "bg-gradient-primary text-white shadow-glow-green"
                   : "bg-muted/60 text-muted-foreground hover:bg-muted"
               )}
             >
@@ -200,6 +438,21 @@ export default function SettingsPage() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -8 }}
             >
+              {tab === "profile" && (
+                <IndustryProfileForm
+                  businessType={businessType}
+                  settings={profileSettings}
+                  locale={isAr ? "ar" : "en"}
+                  onChange={(key, value) => setProfileSettings((p) => ({ ...p, [key]: value }))}
+                  onSave={handleSaveProfile}
+                  saving={updateBusinessMutation.isPending}
+                />
+              )}
+
+              {tab === "website" && (
+                <WebsiteImportPanel businessId={businessId} locale={isAr ? "ar" : "en"} />
+              )}
+
               {tab === "general" && (
                 <Card>
                   <CardHeader>
@@ -242,31 +495,192 @@ export default function SettingsPage() {
                 </Card>
               )}
 
+              {tab === "aiBot" && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Bot className="w-5 h-5" />
+                      {isAr ? "بوت الذكاء الاصطناعي" : "AI Bot"}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 max-w-lg">
+                    <p className="text-sm text-muted-foreground">
+                      {isAr
+                        ? "رسالة الترحيب ولغة البوت — يمكن تعديلها في أي وقت"
+                        : "Greeting message and bot language — edit anytime"}
+                    </p>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-muted-foreground">
+                        {isAr ? "رسالة الترحيب" : "Greeting message"}
+                      </label>
+                      <textarea
+                        value={botForm.greeting}
+                        onChange={(e) => setBotForm({ ...botForm, greeting: e.target.value })}
+                        rows={3}
+                        placeholder={isAr ? "مرحباً! كيف أقدر أساعدك؟" : "Hello! How can I help you?"}
+                        className="w-full rounded-xl border border-border bg-background p-3 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-muted-foreground">
+                        {isAr ? "لغة البوت" : "Bot language"}
+                      </label>
+                      <select
+                        value={botForm.language}
+                        onChange={(e) => setBotForm({ ...botForm, language: e.target.value })}
+                        className="w-full h-10 rounded-lg border border-border bg-background px-3 text-sm"
+                      >
+                        <option value="both">{isAr ? "عربي + إنجليزي" : "Arabic + English"}</option>
+                        <option value="ar">{isAr ? "عربي فقط" : "Arabic only"}</option>
+                        <option value="en">{isAr ? "إنجليزي فقط" : "English only"}</option>
+                      </select>
+                    </div>
+                    <Button onClick={handleSaveBot} loading={updateBusinessMutation.isPending}>
+                      {t(locale, "dashboard", "save")}
+                    </Button>
+                    <p className="text-sm text-muted-foreground">
+                      {isAr
+                        ? "تحكم في البوت، المعرفة، واختبار الردود. إذا لم ترَ «AI Bot» في القائمة الجانبية، استخدم هذا القسم أو الرابط أدناه."
+                        : "Control the bot, knowledge base, and test replies. If you don't see AI Bot in the sidebar, use this tab or the link below."}
+                    </p>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={aiSettings?.aiPaused === true}
+                        onChange={(e) => updateAiSettingsMutation.mutate({ aiPaused: e.target.checked })}
+                        className="rounded accent-primary"
+                      />
+                      {isAr ? "إيقاف AI (ردود تلقائية فقط)" : "Pause AI (auto-replies only)"}
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      {aiSettings?.aiPaused
+                        ? isAr
+                          ? "البوت متوقف — لن يرد GPT"
+                          : "AI is paused — GPT will not reply"
+                        : isAr
+                          ? "البوت نشط — GPT يرد على العملاء"
+                          : "AI is active — GPT replies to customers"}
+                    </p>
+                    <Link href={`/dashboard/${businessId}/ai`}>
+                      <Button className="btn-primary w-full sm:w-auto">
+                        {isAr ? "فتح صفحة AI Bot الكاملة" : "Open full AI Bot page"}
+                      </Button>
+                    </Link>
+                    <ul className="text-sm text-muted-foreground list-disc ps-5 space-y-1">
+                      <li>{isAr ? "Catalog → أضف منتجات للقائمة" : "Catalog → add products for menu"}</li>
+                      <li>{isAr ? "General → أضف وصف المنشأة" : "General tab → add business description"}</li>
+                      <li>{isAr ? "AI Bot → Knowledge → FAQs" : "AI Bot page → Knowledge → add FAQs"}</li>
+                    </ul>
+                  </CardContent>
+                </Card>
+              )}
+
               {tab === "whatsapp" && (
                 <Card>
                   <CardHeader>
                     <CardTitle>{t(locale, "setup", "connectWhatsApp")}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4 max-w-lg">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        {isAr ? "مزود واتساب" : "WhatsApp provider"}
+                      </label>
+                      <select
+                        value={whatsappForm.provider}
+                        onChange={(e) =>
+                          setWhatsappForm({
+                            ...whatsappForm,
+                            provider: e.target.value as "meta" | "whapi",
+                          })
+                        }
+                        className="h-10 w-full max-w-xs rounded-lg border border-border bg-background px-3 text-sm"
+                      >
+                        <option value="whapi">Whapi.Cloud (panel.whapi.cloud)</option>
+                        <option value="meta">Meta Cloud API</option>
+                      </select>
+                    </div>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/30 dark:border-emerald-800 p-4 text-sm space-y-2">
+                      <p className="font-medium text-emerald-900 dark:text-emerald-100">
+                        {isAr ? "إرشادات الربط" : "Setup guide"}
+                      </p>
+                      {whatsappForm.provider === "whapi" ? (
+                        <ul className="list-disc ps-5 text-emerald-800 dark:text-emerald-200 space-y-1">
+                          <li>
+                            {isAr
+                              ? "Whapi → Channel → Settings: Webhook URL = https://YOUR-BACKEND/webhook/whapi (HTTPS)"
+                              : "Whapi → Channel → Settings: Webhook URL = https://YOUR-BACKEND/webhook/whapi (HTTPS, events: messages POST)"}
+                          </li>
+                          <li>
+                            {isAr
+                              ? "Channel ID من اللوحة (مثل MANTIS-XXX) → حقل Channel ID أدناه"
+                              : "Channel ID from panel (e.g. MANTIS-XXX) → Channel ID field below"}
+                          </li>
+                          <li>
+                            {isAr
+                              ? "API Token من اللوحة → حقل Token أدناه (ليس verify token)"
+                              : "API Token from panel.whapi.cloud → Token field below"}
+                          </li>
+                          <li>
+                            {isAr
+                              ? "اختبر من رقم آخر (ليس نفس الرقم المربوط) — الرسالة تصل للبوت ثم يرد تلقائياً"
+                              : "Test from another phone (not the linked business number) — message hits bot and auto-reply"}
+                          </li>
+                        </ul>
+                      ) : (
+                        <ul className="list-disc ps-5 text-emerald-800 dark:text-emerald-200 space-y-1">
+                          <li>
+                            {isAr
+                              ? "Railway: webhook /webhook/whatsapp + WHATSAPP_VERIFY_TOKEN"
+                              : "Railway: webhook /webhook/whatsapp + WHATSAPP_VERIFY_TOKEN"}
+                          </li>
+                          <li>
+                            {isAr
+                              ? "Meta → API Setup: Phone number ID + token (EAA...)"
+                              : "Meta → API Setup: Phone number ID + access token (EAA...)"}
+                          </li>
+                        </ul>
+                      )}
+                    </div>
                     <Input
-                      label={isAr ? "رقم واتساب" : "WhatsApp Number"}
+                      label={isAr ? "رقم واتساب (عرض فقط)" : "WhatsApp Number (display only)"}
                       value={whatsappForm.number}
                       onChange={(e) => setWhatsappForm({ ...whatsappForm, number: e.target.value })}
                       dir="ltr"
                     />
                     <Input
-                      label="Phone ID"
+                      label={
+                        whatsappForm.provider === "whapi"
+                          ? isAr
+                            ? "Channel ID (من Whapi)"
+                            : "Channel ID (from Whapi panel)"
+                          : isAr
+                            ? "Phone number ID (من Meta)"
+                            : "Phone number ID (from Meta API Setup)"
+                      }
                       value={whatsappForm.phoneId}
                       onChange={(e) => setWhatsappForm({ ...whatsappForm, phoneId: e.target.value })}
                       dir="ltr"
                     />
                     <Input
-                      label="Access Token"
+                      label={
+                        whatsappForm.provider === "whapi"
+                          ? isAr
+                            ? "API Token (من Whapi)"
+                            : "API Token (from Whapi panel)"
+                          : isAr
+                            ? "Access Token (من Meta، EAA...)"
+                            : "Access Token (from Meta, starts with EAA)"
+                      }
                       type="password"
                       value={whatsappForm.token}
                       onChange={(e) => setWhatsappForm({ ...whatsappForm, token: e.target.value })}
                       dir="ltr"
                     />
+                    <p className="text-xs text-muted-foreground">
+                      {isAr
+                        ? "بعد الحفظ يبقى حقل التوكن فارغاً للأمان — اضغط اختبار الاتصال أو الصق التوكن مرة أخرى"
+                        : "After Save, token field stays empty for security — Test Connection uses saved token, or paste token again"}
+                    </p>
                     <div className="flex gap-3">
                       <Button onClick={handleSaveWhatsApp} loading={updateBusinessMutation.isPending}>
                         {t(locale, "dashboard", "save")}
@@ -337,11 +751,7 @@ export default function SettingsPage() {
                         )}
                       </div>
                     ))}
-                    <Button
-                      onClick={() =>
-                        updateBusinessMutation.mutate({ settings: { workingHours: hours } })
-                      }
-                    >
+                    <Button onClick={handleSaveHours} loading={updateBusinessMutation.isPending}>
                       {t(locale, "dashboard", "save")}
                     </Button>
                   </CardContent>
@@ -350,6 +760,32 @@ export default function SettingsPage() {
 
               {tab === "autoReplies" && (
                 <div className="space-y-6">
+                  <Card className="border-dashed">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">
+                        {isAr ? "اقتراحات جاهزة" : "Suggested rules for your industry"}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {getAutoReplySuggestions(businessType).map((s) => (
+                        <button
+                          key={s.keywords}
+                          type="button"
+                          className="w-full text-start p-3 rounded-xl bg-muted/40 hover:bg-muted text-sm transition-colors"
+                          onClick={() =>
+                            setAutoReplyForm({
+                              keywords: s.keywords,
+                              responseEn: s.en,
+                              responseAr: s.ar,
+                            })
+                          }
+                        >
+                          <span className="font-medium">{s.keywords}</span>
+                          <p className="text-xs text-muted-foreground mt-1 truncate">{s.en}</p>
+                        </button>
+                      ))}
+                    </CardContent>
+                  </Card>
                   <Card>
                     <CardHeader>
                       <CardTitle>{isAr ? "إضافة رد تلقائي" : "Add Auto-Reply"}</CardTitle>
@@ -422,6 +858,164 @@ export default function SettingsPage() {
                     </CardContent>
                   </Card>
                 </div>
+              )}
+
+              {tab === "integrations" && (
+                <div className="space-y-4">
+                  {[
+                    {
+                      id: "email" as const,
+                      labelEn: "Email (SMTP)",
+                      labelAr: "البريد الإلكتروني",
+                      icon: Mail,
+                      fields: [
+                        { key: "smtpHost", en: "SMTP Host", ar: "خادم SMTP" },
+                        { key: "smtpUser", en: "SMTP User", ar: "المستخدم" },
+                        { key: "smtpPass", en: "SMTP Password", ar: "كلمة المرور" },
+                        { key: "fromEmail", en: "From Email", ar: "البريد المرسل" },
+                      ],
+                    },
+                    {
+                      id: "sms" as const,
+                      labelEn: "SMS (Unifonic)",
+                      labelAr: "رسائل SMS",
+                      icon: Smartphone,
+                      fields: [
+                        { key: "apiKey", en: "API Key", ar: "مفتاح API" },
+                        { key: "senderId", en: "Sender ID", ar: "معرف المرسل" },
+                      ],
+                    },
+                    {
+                      id: "instagram" as const,
+                      labelEn: "Instagram",
+                      labelAr: "إنستغرام",
+                      icon: Share2,
+                      fields: [
+                        { key: "pageId", en: "Page ID", ar: "معرف الصفحة" },
+                        { key: "accessToken", en: "Access Token", ar: "رمز الوصول" },
+                      ],
+                    },
+                    {
+                      id: "facebook" as const,
+                      labelEn: "Facebook",
+                      labelAr: "فيسبوك",
+                      icon: Share2,
+                      fields: [
+                        { key: "pageId", en: "Page ID", ar: "معرف الصفحة" },
+                        { key: "accessToken", en: "Access Token", ar: "رمز الوصول" },
+                      ],
+                    },
+                  ].map((ch) => (
+                    <Card key={ch.id}>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <ch.icon className="w-4 h-4" />
+                          {isAr ? ch.labelAr : ch.labelEn}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={channels?.[ch.id]?.isEnabled ?? false}
+                            onChange={(e) =>
+                              updateChannelMutation.mutate({
+                                channel: ch.id,
+                                data: { isEnabled: e.target.checked, config: channelForms[ch.id] },
+                              })
+                            }
+                            className="rounded accent-primary"
+                          />
+                          {isAr ? "مفعّل" : "Enabled"}
+                        </label>
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          {ch.fields.map((f) => (
+                            <Input
+                              key={f.key}
+                              label={isAr ? f.ar : f.en}
+                              type={f.key.includes("Pass") || f.key.includes("Token") || f.key === "apiKey" ? "password" : "text"}
+                              value={channelForms[ch.id][f.key as keyof typeof channelForms[typeof ch.id]]}
+                              onChange={(e) =>
+                                setChannelForms((prev) => ({
+                                  ...prev,
+                                  [ch.id]: { ...prev[ch.id], [f.key]: e.target.value },
+                                }))
+                              }
+                            />
+                          ))}
+                        </div>
+                        <Button
+                          onClick={() =>
+                            updateChannelMutation.mutate({
+                              channel: ch.id,
+                              data: { isEnabled: channels?.[ch.id]?.isEnabled ?? false, config: channelForms[ch.id] },
+                            })
+                          }
+                          loading={updateChannelMutation.isPending}
+                        >
+                          {t(locale, "dashboard", "save")}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {tab === "compliance" && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Shield className="w-4 h-4" />
+                      {isAr ? "امتثال PDPL" : "PDPL Compliance"}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={pdplForm.enabled}
+                        onChange={(e) => setPdplForm({ ...pdplForm, enabled: e.target.checked })}
+                        className="rounded accent-primary"
+                      />
+                      {isAr ? "تفعيل سياسة PDPL" : "Enable PDPL policy"}
+                    </label>
+                    <Input
+                      label={isAr ? "أيام الاحتفاظ بالبيانات" : "Data retention (days)"}
+                      type="number"
+                      value={String(pdplForm.dataRetentionDays)}
+                      onChange={(e) =>
+                        setPdplForm({ ...pdplForm, dataRetentionDays: Number(e.target.value) || 365 })
+                      }
+                    />
+                    {compliance && (
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground">
+                          {isAr ? "تغطية الموافقة:" : "Consent coverage:"}{" "}
+                          <span className="font-semibold text-foreground">{compliance.consentCoverage}%</span>
+                        </p>
+                        {compliance.checklist.map((item) => (
+                          <div key={item.id} className="flex items-center gap-2 text-sm">
+                            <span className={item.done ? "text-green-600" : "text-muted-foreground"}>
+                              {item.done ? "✓" : "○"}
+                            </span>
+                            {item.label}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <Button
+                      onClick={() =>
+                        updateComplianceMutation.mutate({
+                          enabled: pdplForm.enabled,
+                          dataRetentionDays: pdplForm.dataRetentionDays,
+                        })
+                      }
+                      loading={updateComplianceMutation.isPending}
+                    >
+                      {t(locale, "dashboard", "save")}
+                    </Button>
+                  </CardContent>
+                </Card>
               )}
 
               {tab === "notifications" && (
@@ -511,6 +1105,12 @@ export default function SettingsPage() {
           </AnimatePresence>
         </div>
       </div>
-    </div>
+    </>
+  );
+
+  return isManpower ? (
+    <ManpowerPageShell>{settingsContent}</ManpowerPageShell>
+  ) : (
+    <div className="space-y-6">{settingsContent}</div>
   );
 }

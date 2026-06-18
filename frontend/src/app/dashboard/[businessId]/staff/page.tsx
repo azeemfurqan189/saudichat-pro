@@ -10,35 +10,38 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { MemberInviteSentCard } from "@/components/dashboard/member-invite-sent-card";
 import { useApp } from "@/lib/context";
 import { t } from "@/lib/i18n";
-import { api, Staff } from "@/lib/api";
+import { api, BusinessMember, MemberInvitePayload } from "@/lib/api";
 import { cn, getInitials } from "@/lib/utils";
+import { useIsManpowerTheme } from "@/hooks/use-is-manpower-theme";
+import { ManpowerHeroHeader, ManpowerPageShell } from "@/components/dashboard/manpower-shell";
 
 const ROLES = [
   {
-    id: "admin",
-    labelEn: "Admin",
-    labelAr: "مدير",
-    descEn: "Full access to all features",
-    descAr: "صلاحيات كاملة",
-    icon: Shield,
-  },
-  {
-    id: "manager",
+    id: "MANAGER",
     labelEn: "Manager",
     labelAr: "مشرف",
-    descEn: "Manage orders, customers, and staff",
-    descAr: "إدارة الطلبات والعملاء",
+    descEn: "Manage team, schedule, and assignments",
+    descAr: "إدارة الفريق والجدول والمهام",
     icon: UserCog,
   },
   {
-    id: "agent",
-    labelEn: "Agent",
-    labelAr: "موظف",
-    descEn: "Handle conversations and orders",
-    descAr: "التعامل مع المحادثات والطلبات",
+    id: "OFFICE_STAFF",
+    labelEn: "Office Staff",
+    labelAr: "موظف مكتب",
+    descEn: "Handle conversations and assigned tasks",
+    descAr: "المحادثات والمهام المخصصة",
     icon: Eye,
+  },
+  {
+    id: "FIELD_WORKER",
+    labelEn: "Field Worker",
+    labelAr: "عامل ميداني",
+    descEn: "Deliveries and on-site jobs",
+    descAr: "التوصيل والعمل الميداني",
+    icon: Shield,
   },
 ];
 
@@ -50,28 +53,59 @@ export default function StaffPage() {
   const queryClient = useQueryClient();
 
   const [showInvite, setShowInvite] = useState(false);
+  const [sentInvite, setSentInvite] = useState<{ invite: MemberInvitePayload; name: string } | null>(null);
   const [inviteForm, setInviteForm] = useState({
     name: "",
     email: "",
     phone: "",
-    role: "agent",
+    role: "OFFICE_STAFF",
+    department: "",
   });
 
-  const { data: staff = [], isLoading } = useQuery({
-    queryKey: ["staff", businessId],
+  const { data: members = [], isLoading } = useQuery({
+    queryKey: ["workforce-members", businessId],
     queryFn: async () => {
-      const res = await api.getStaff(businessId);
+      const res = await api.getWorkforceMembers(businessId);
       return res.data ?? [];
     },
   });
 
+  const { data: meData } = useQuery({
+    queryKey: ["me"],
+    queryFn: async () => (await api.getMe()).data,
+  });
+  const businessType = meData?.businesses?.find((b) => b.id === businessId)?.type;
+  const isManpower = useIsManpowerTheme(businessId, businessType);
+
   const inviteMutation = useMutation({
-    mutationFn: (data: Partial<Staff>) => api.createStaff(businessId, data),
-    onSuccess: () => {
+    mutationFn: (data: { name: string; email: string; phone: string; role: string; department?: string }) =>
+      api.inviteWorkforceMember(businessId, data),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["workforce-members", businessId] });
       queryClient.invalidateQueries({ queryKey: ["staff", businessId] });
-      toast.success(isAr ? "تم إرسال الدعوة" : "Invitation sent");
-      setInviteForm({ name: "", email: "", phone: "", role: "agent" });
+      const invite = res.data?.invite;
+      if (invite) {
+        setSentInvite({ invite, name: inviteForm.name });
+        toast.success(
+          isAr
+            ? "تم إرسال رابط الدخول — شاركه على واتساب أو الإيميل"
+            : "Login link sent — share via WhatsApp or email"
+        );
+      } else {
+        toast.success(isAr ? "تمت إضافة العضو" : "Member added");
+      }
+      setInviteForm({ name: "", email: "", phone: "", role: "OFFICE_STAFF", department: "" });
       setShowInvite(false);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const deactivateMutation = useMutation({
+    mutationFn: (memberId: string) =>
+      api.updateWorkforceMember(businessId, memberId, { isActive: false }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workforce-members", businessId] });
+      toast.success(isAr ? "تم إلغاء التفعيل" : "Member deactivated");
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -83,26 +117,50 @@ export default function StaffPage() {
       email: inviteForm.email,
       phone: inviteForm.phone,
       role: inviteForm.role,
-      isActive: true,
+      department: inviteForm.department || undefined,
     });
   };
 
-  const roleInfo = (roleId: string) => ROLES.find((r) => r.id === roleId) ?? ROLES[2];
+  const roleInfo = (roleId: string) => ROLES.find((r) => r.id === roleId) ?? ROLES[1];
+  const teamMembers = members.filter((m: BusinessMember) => m.role !== "OWNER");
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">{t(locale, "dashboard", "staff")}</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {isAr ? `${staff.length} عضو` : `${staff.length} team members`}
-          </p>
+  const staffContent = (
+    <>
+      {isManpower ? (
+        <ManpowerHeroHeader
+          title={t(locale, "dashboard", "staff")}
+          subtitle={isAr ? `${teamMembers.length} عضو` : `${teamMembers.length} team members`}
+          icon={UserCog}
+          actions={
+            <Button onClick={() => setShowInvite(!showInvite)}>
+              <UserPlus className="w-4 h-4" />
+              {isAr ? "دعوة عضو" : "Invite Member"}
+            </Button>
+          }
+        />
+      ) : (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">{t(locale, "dashboard", "staff")}</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {isAr ? `${teamMembers.length} عضو` : `${teamMembers.length} team members`}
+            </p>
+          </div>
+          <Button onClick={() => setShowInvite(!showInvite)}>
+            <UserPlus className="w-4 h-4" />
+            {isAr ? "دعوة عضو" : "Invite Member"}
+          </Button>
         </div>
-        <Button onClick={() => setShowInvite(!showInvite)}>
-          <UserPlus className="w-4 h-4" />
-          {isAr ? "دعوة عضو" : "Invite Member"}
-        </Button>
-      </div>
+      )}
+
+      {sentInvite && (
+        <MemberInviteSentCard
+          isAr={isAr}
+          invite={sentInvite.invite}
+          memberName={sentInvite.name}
+          onClose={() => setSentInvite(null)}
+        />
+      )}
 
       {/* Roles overview */}
       <div className="grid md:grid-cols-3 gap-4">
@@ -126,7 +184,7 @@ export default function StaffPage() {
                 </div>
               </div>
               <p className="text-2xl font-bold">
-                {staff.filter((s) => s.role === role.id).length}
+                {teamMembers.filter((s) => s.role === role.id).length}
               </p>
             </Card>
           </motion.div>
@@ -194,15 +252,16 @@ export default function StaffPage() {
       {/* Staff list */}
       {isLoading ? (
         <TableSkeleton rows={5} />
-      ) : staff.length === 0 ? (
+      ) : teamMembers.length === 0 ? (
         <Card className="text-center py-16">
           <UserCog className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
           <p className="text-muted-foreground">{t(locale, "dashboard", "noData")}</p>
         </Card>
       ) : (
         <div className="grid md:grid-cols-2 gap-4">
-          {staff.map((member, i) => {
+          {teamMembers.map((member, i) => {
             const role = roleInfo(member.role);
+            const name = member.user?.name || "?";
             return (
               <motion.div
                 key={member.id}
@@ -213,16 +272,16 @@ export default function StaffPage() {
                 <Card className="!p-4">
                   <div className="flex items-start gap-4">
                     <div className="w-12 h-12 rounded-full bg-gradient-primary flex items-center justify-center text-white font-bold shrink-0">
-                      {member.avatar ? (
+                      {member.user?.avatar ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={member.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+                        <img src={member.user.avatar} alt="" className="w-full h-full rounded-full object-cover" />
                       ) : (
-                        getInitials(member.name)
+                        getInitials(name)
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="font-semibold truncate">{member.name}</p>
+                        <p className="font-semibold truncate">{name}</p>
                         <span
                           className={cn(
                             "text-xs px-2 py-0.5 rounded-full shrink-0",
@@ -240,17 +299,28 @@ export default function StaffPage() {
                           {isAr ? role.labelAr : role.labelEn}
                         </span>
                       </div>
-                      {member.email && (
+                      {member.user?.email && (
                         <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2 truncate">
                           <Mail className="w-3 h-3 shrink-0" />
-                          {member.email}
+                          {member.user.email}
                         </p>
                       )}
-                      {member.phone && (
+                      {member.user?.phone && (
                         <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1" dir="ltr">
                           <Phone className="w-3 h-3 shrink-0" />
-                          {member.phone}
+                          {member.user.phone}
                         </p>
+                      )}
+                      {member.isActive && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3"
+                          onClick={() => deactivateMutation.mutate(member.id)}
+                          loading={deactivateMutation.isPending}
+                        >
+                          {isAr ? "إلغاء التفعيل" : "Deactivate"}
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -260,6 +330,12 @@ export default function StaffPage() {
           })}
         </div>
       )}
-    </div>
+    </>
+  );
+
+  return isManpower ? (
+    <ManpowerPageShell>{staffContent}</ManpowerPageShell>
+  ) : (
+    <div className="space-y-6">{staffContent}</div>
   );
 }

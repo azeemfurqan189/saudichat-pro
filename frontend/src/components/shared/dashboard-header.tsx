@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useRef, useEffect, useMemo } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Bell, Menu, LogOut, User, Settings } from "lucide-react";
+import { Search, Bell, Menu, LogOut, User, Settings, ArrowLeft } from "lucide-react";
+import { getDashboardBackTarget } from "@/lib/dashboard-nav";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { LanguageToggle } from "@/components/shared/language-toggle";
 import { Button } from "@/components/ui/button";
@@ -17,11 +19,14 @@ interface DashboardHeaderProps {
   businessId: string;
   businessName?: string;
   onMenuClick?: () => void;
+  light?: boolean;
 }
 
-export function DashboardHeader({ businessId, businessName, onMenuClick }: DashboardHeaderProps) {
+export function DashboardHeader({ businessId, businessName, onMenuClick, light }: DashboardHeaderProps) {
   const { locale } = useApp();
+  const pathname = usePathname();
   const router = useRouter();
+  const backTarget = useMemo(() => getDashboardBackTarget(pathname, businessId), [pathname, businessId]);
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [notifOpen, setNotifOpen] = useState(false);
@@ -40,6 +45,7 @@ export function DashboardHeader({ businessId, businessName, onMenuClick }: Dashb
       const res = await api.getNotifications(businessId);
       return res.data ?? [];
     },
+    refetchInterval: 30000,
   });
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
@@ -65,11 +71,37 @@ export function DashboardHeader({ businessId, businessName, onMenuClick }: Dashb
   }, []);
 
   return (
-    <header className="sticky top-0 z-20 glass border-b border-border/50 px-4 py-3">
+    <header
+      className={cn(
+        "sticky top-0 z-20 px-4 py-3 border-b",
+        light
+          ? "bg-[#FAFAF8] border-[#E8E8E8]"
+          : "glass border-border/50"
+      )}
+    >
       <div className="flex items-center gap-4">
         {onMenuClick && (
           <Button variant="ghost" size="icon" onClick={onMenuClick} className="lg:hidden">
             <Menu className="w-5 h-5" />
+          </Button>
+        )}
+
+        {backTarget && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "shrink-0 gap-1.5 h-9 px-2.5",
+              light ? "text-[#5c5c5c] hover:text-[#1a1a1a] hover:bg-[#EFEFEF]" : ""
+            )}
+            asChild
+          >
+            <Link href={backTarget.href} title={locale === "ar" ? backTarget.labelAr : backTarget.labelEn}>
+              <ArrowLeft className="w-4 h-4 rtl-flip" />
+              <span className="hidden sm:inline text-[13px] font-medium max-w-[140px] truncate">
+                {locale === "ar" ? backTarget.labelAr : backTarget.labelEn}
+              </span>
+            </Link>
           </Button>
         )}
 
@@ -81,13 +113,18 @@ export function DashboardHeader({ businessId, businessName, onMenuClick }: Dashb
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t(locale, "dashboard", "search")}
-              className="w-full h-10 ps-10 pe-4 rounded-xl border border-border bg-white/50 dark:bg-gray-900/50 text-sm backdrop-blur-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+              className={cn(
+                "w-full h-10 ps-10 pe-4 rounded-xl border text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+                light
+                  ? "border-[#E8E8E8] bg-white text-[#1a1a1a] placeholder:text-[#9a9a9a]"
+                  : "border-border bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm text-sm"
+              )}
             />
           </div>
         </div>
 
         {businessName && (
-          <p className="hidden md:block text-sm font-medium text-muted-foreground truncate max-w-[200px]">
+          <p className="hidden md:block text-[13px] font-medium text-[#5c5c5c] truncate max-w-[200px]">
             {businessName}
           </p>
         )}

@@ -7,18 +7,22 @@ import {
   generateOTP,
   storeOTP,
   verifyOTP,
+  normalizePhone,
 } from '../utils/auth';
 import { AuthRequest } from '../middleware/auth';
 import { validateBody, loginSchema, signupSchema, verifyOtpSchema } from '../utils/validation';
+import { getAccessibleBusinesses } from '../services/membershipService';
+import { acceptMemberInvite, getInvitePreview } from '../services/memberInviteService';
 
 export async function login(req: AuthRequest, res: Response): Promise<void> {
   const validation = validateBody(loginSchema, req.body);
-  if (!validation.success) {
+  if (validation.success === false) {
     res.status(400).json({ success: false, errors: validation.errors });
     return;
   }
 
-  const { phone, password } = validation.data;
+  const phone = normalizePhone(validation.data.phone);
+  const { password } = validation.data;
   const user = await prisma.user.findUnique({ where: { phone } });
 
   if (!user || !(await comparePassword(password, user.password))) {
@@ -26,10 +30,7 @@ export async function login(req: AuthRequest, res: Response): Promise<void> {
     return;
   }
 
-  const businesses = await prisma.business.findMany({
-    where: { userId: user.id },
-    select: { id: true, name: true, type: true, slug: true, logo: true },
-  });
+  const businesses = await getAccessibleBusinesses(user.id);
 
   const token = signToken({ userId: user.id, email: user.email });
 
@@ -38,19 +39,24 @@ export async function login(req: AuthRequest, res: Response): Promise<void> {
     data: {
       token,
       user: { id: user.id, name: user.name, email: user.email, phone: user.phone, avatar: user.avatar },
-      businesses,
+      businesses: businesses.map((b) => ({
+        ...b.business,
+        memberRole: b.role,
+        memberId: b.memberId,
+      })),
     },
   });
 }
 
 export async function signup(req: AuthRequest, res: Response): Promise<void> {
   const validation = validateBody(signupSchema, req.body);
-  if (!validation.success) {
+  if (validation.success === false) {
     res.status(400).json({ success: false, errors: validation.errors });
     return;
   }
 
-  const { name, email, phone, password } = validation.data;
+  const { name, email, password } = validation.data;
+  const phone = normalizePhone(validation.data.phone);
 
   const existing = await prisma.user.findFirst({
     where: { OR: [{ email }, { phone }] },
@@ -64,22 +70,28 @@ export async function signup(req: AuthRequest, res: Response): Promise<void> {
   const otp = generateOTP();
   storeOTP(phone, otp);
 
-  // In production, send OTP via SMS
+  const smsConfigured = Boolean(process.env.UNIFONIC_APP_SID);
+  const showOtpOnScreen =
+    process.env.SHOW_OTP_IN_RESPONSE === 'true' ||
+    process.env.NODE_ENV === 'development' ||
+    !smsConfigured;
+
   res.json({
     success: true,
-    message: 'OTP sent to your phone',
-    ...(process.env.NODE_ENV === 'development' && { otp }),
+    message: smsConfigured ? 'OTP sent to your phone' : 'OTP generated — enter the code shown below',
+    ...(showOtpOnScreen && { otp }),
   });
 }
 
 export async function verifySignupOtp(req: AuthRequest, res: Response): Promise<void> {
   const otpValidation = validateBody(verifyOtpSchema, req.body);
-  if (!otpValidation.success) {
+  if (otpValidation.success === false) {
     res.status(400).json({ success: false, errors: otpValidation.errors });
     return;
   }
 
-  const { phone, otp } = otpValidation.data;
+  const phone = normalizePhone(otpValidation.data.phone);
+  const { otp } = otpValidation.data;
 
   if (!verifyOTP(phone, otp)) {
     res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
@@ -110,11 +122,12 @@ export async function verifySignupOtp(req: AuthRequest, res: Response): Promise<
 }
 
 export async function forgotPassword(req: AuthRequest, res: Response): Promise<void> {
-  const { phone } = req.body;
-  if (!phone) {
+  const rawPhone = req.body?.phone as string | undefined;
+  if (!rawPhone) {
     res.status(400).json({ success: false, message: 'Phone required' });
     return;
   }
+  const phone = normalizePhone(rawPhone);
 
   const user = await prisma.user.findUnique({ where: { phone } });
   if (!user) {
@@ -125,21 +138,32 @@ export async function forgotPassword(req: AuthRequest, res: Response): Promise<v
   const otp = generateOTP();
   storeOTP(phone, otp);
 
+  const smsConfigured = Boolean(process.env.UNIFONIC_APP_SID);
+  const showOtpOnScreen =
+    process.env.SHOW_OTP_IN_RESPONSE === 'true' ||
+    process.env.NODE_ENV === 'development' ||
+    !smsConfigured;
+
   res.json({
     success: true,
-    message: 'OTP sent',
-    ...(process.env.NODE_ENV === 'development' && { otp }),
+    message: smsConfigured ? 'OTP sent' : 'OTP generated',
+    ...(showOtpOnScreen && { otp }),
   });
 }
 
 export async function resetPassword(req: AuthRequest, res: Response): Promise<void> {
-  const { phone, otp, password } = req.body;
+  const { otp, password } = req.body as { phone?: string; otp?: string; password?: string };
+  const phone = req.body?.phone ? normalizePhone(String(req.body.phone)) : '';
   if (!phone || !otp || !password) {
     res.status(400).json({ success: false, message: 'Phone, OTP, and password required' });
     return;
   }
+  if (String(password).length < 6) {
+    res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+    return;
+  }
 
-  if (!verifyOTP(phone, otp)) {
+  if (!verifyOTP(phone, String(otp))) {
     res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
     return;
   }
@@ -159,9 +183,50 @@ export async function getMe(req: AuthRequest, res: Response): Promise<void> {
     select: { id: true, name: true, email: true, phone: true, avatar: true, createdAt: true },
   });
 
-  const businesses = await prisma.business.findMany({
-    where: { userId: req.user!.userId },
-  });
+  const accessible = await getAccessibleBusinesses(req.user!.userId);
 
-  res.json({ success: true, data: { user, businesses } });
+  res.json({
+    success: true,
+    data: {
+      user,
+      businesses: accessible.map((b) => ({
+        ...b.business,
+        memberRole: b.role,
+        memberId: b.memberId,
+      })),
+    },
+  });
+}
+
+export async function getMemberInvite(req: AuthRequest, res: Response): Promise<void> {
+  const token = String(req.params.token || '');
+  if (!token) {
+    res.status(400).json({ success: false, message: 'Invite token required' });
+    return;
+  }
+  const preview = await getInvitePreview(token);
+  if (!preview.valid) {
+    res.status(404).json({ success: false, message: 'Invalid or expired invite', reason: preview.reason });
+    return;
+  }
+  res.json({ success: true, data: preview });
+}
+
+export async function acceptMemberInviteHandler(req: AuthRequest, res: Response): Promise<void> {
+  const token = String(req.params.token || '');
+  const phone = String(req.body?.phone || '');
+  const password = String(req.body?.password || '');
+  if (!token) {
+    res.status(400).json({ success: false, message: 'Invite token required' });
+    return;
+  }
+  try {
+    const data = await acceptMemberInvite(token, phone, password);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err instanceof Error ? err.message : 'Could not accept invite',
+    });
+  }
 }

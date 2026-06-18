@@ -11,6 +11,11 @@ import { useApp } from "@/lib/context";
 import { t } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { useIsManpowerTheme } from "@/hooks/use-is-manpower-theme";
+import { ManpowerHeroHeader, ManpowerPageShell } from "@/components/dashboard/manpower-shell";
+
+/** Payment / Moyasar disabled — all accounts on free trial for now */
+const PAYMENTS_ENABLED = false;
 
 const PLANS = [
   {
@@ -67,6 +72,7 @@ export default function BillingPage() {
   });
 
   const currentPlanId = (business?.subscriptionPlan || "starter").toLowerCase();
+  const isManpower = useIsManpowerTheme(businessId, business?.type);
   const currentPlan = PLANS.find((p) => p.id === currentPlanId) ?? PLANS[0];
 
   const usage = {
@@ -112,14 +118,33 @@ export default function BillingPage() {
     );
   };
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">{t(locale, "dashboard", "billing")}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {isAr ? "إدارة الاشتراك والفواتير" : "Manage subscription and invoices"}
-        </p>
-      </div>
+  const billingContent = (
+    <>
+      {!PAYMENTS_ENABLED && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium">
+              {isAr
+                ? "جميع الحسابات مجانية حالياً — لا حاجة للدفع. الدفع سيُفعّل لاحقاً."
+                : "All accounts are free right now — no payment required. Billing will be enabled later."}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      {isManpower ? (
+        <ManpowerHeroHeader
+          title={t(locale, "dashboard", "billing")}
+          subtitle={isAr ? "إدارة الاشتراك والفواتير" : "Manage subscription and invoices"}
+          icon={CreditCard}
+        />
+      ) : (
+        <div>
+          <h1 className="text-2xl font-bold">{t(locale, "dashboard", "billing")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {isAr ? "إدارة الاشتراك والفواتير" : "Manage subscription and invoices"}
+          </p>
+        </div>
+      )}
 
       {/* Current plan */}
       <Card className="relative overflow-hidden">
@@ -132,8 +157,11 @@ export default function BillingPage() {
                 {isAr ? currentPlan.nameAr : currentPlan.name}
               </h2>
               <p className="text-muted-foreground mt-1">
-                {formatCurrency(currentPlan.price, isAr ? "ar-SA" : "en-SA")}
-                {isAr ? " / شهر" : " / month"}
+                {!PAYMENTS_ENABLED
+                  ? isAr
+                    ? "مجاني — تجربة"
+                    : "Free — trial access"
+                  : `${formatCurrency(currentPlan.price, isAr ? "ar-SA" : "en-SA")}${isAr ? " / شهر" : " / month"}`}
               </p>
               <span
                 className={cn(
@@ -146,7 +174,7 @@ export default function BillingPage() {
                 {business?.subscriptionStatus || "active"}
               </span>
             </div>
-            <Button variant="gold">
+            <Button variant="gold" disabled={!PAYMENTS_ENABLED}>
               <ArrowUpRight className="w-4 h-4" />
               {isAr ? "ترقية الخطة" : "Upgrade Plan"}
             </Button>
@@ -237,15 +265,19 @@ export default function BillingPage() {
                     <Button
                       variant={isCurrent ? "outline" : plan.popular ? "gold" : "default"}
                       className="w-full"
-                      disabled={isCurrent}
+                      disabled={isCurrent || !PAYMENTS_ENABLED}
                     >
-                      {isCurrent
+                      {!PAYMENTS_ENABLED
                         ? isAr
-                          ? "الخطة الحالية"
-                          : "Current Plan"
-                        : isAr
-                          ? "ترقية"
-                          : "Upgrade"}
+                          ? "قريباً"
+                          : "Coming soon"
+                        : isCurrent
+                          ? isAr
+                            ? "الخطة الحالية"
+                            : "Current Plan"
+                          : isAr
+                            ? "ترقية"
+                            : "Upgrade"}
                     </Button>
                   </CardContent>
                 </Card>
@@ -300,6 +332,12 @@ export default function BillingPage() {
           </div>
         </CardContent>
       </Card>
-    </div>
+    </>
+  );
+
+  return isManpower ? (
+    <ManpowerPageShell>{billingContent}</ManpowerPageShell>
+  ) : (
+    <div className="space-y-6">{billingContent}</div>
   );
 }

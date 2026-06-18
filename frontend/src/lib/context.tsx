@@ -15,12 +15,24 @@ const AppContext = createContext<AppContextType>({
   dir: "ltr",
 });
 
+function readStoredLocale(): Locale {
+  if (typeof window === "undefined") return "en";
+  try {
+    const saved = localStorage.getItem("locale") as Locale;
+    if (saved === "ar" || saved === "en") return saved;
+  } catch {
+    /* ignore */
+  }
+  return "en";
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>("en");
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("locale") as Locale;
-    if (saved === "ar" || saved === "en") setLocaleState(saved);
+    setLocaleState(readStoredLocale());
+    setReady(true);
   }, []);
 
   const setLocale = (l: Locale) => {
@@ -31,9 +43,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    if (!ready) return;
     document.documentElement.lang = locale;
     document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
-  }, [locale]);
+  }, [locale, ready]);
 
   return (
     <AppContext.Provider value={{ locale, setLocale, dir: locale === "ar" ? "rtl" : "ltr" }}>

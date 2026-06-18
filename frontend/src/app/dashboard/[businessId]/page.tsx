@@ -24,6 +24,11 @@ import {
   Stethoscope,
   MessageSquare,
   ArrowRight,
+  Bot,
+  Settings,
+  Users,
+  UserCog,
+  CheckSquare,
 } from "lucide-react";
 import { AnimatedCounter } from "@/components/ui/animated-counter";
 import { Button } from "@/components/ui/button";
@@ -33,6 +38,11 @@ import { useApp } from "@/lib/context";
 import { t } from "@/lib/i18n";
 import { api, DashboardData, Order, Appointment, Conversation } from "@/lib/api";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { BotSetupChecklist } from "@/components/dashboard/bot-setup-checklist";
+import { ManpowerAnalyticsDashboard } from "@/components/dashboard/manpower-analytics-dashboard";
+import { ManpowerPageShell } from "@/components/dashboard/manpower-shell";
+import { getIndustryLabel, normalizeBusinessType, getIndustryCategory } from "@/lib/industry-config";
+import { useIsManpowerTheme } from "@/hooks/use-is-manpower-theme";
 
 type IndustryType = "RESTAURANT" | "SALON" | "CLINIC";
 
@@ -250,7 +260,35 @@ export default function DashboardOverviewPage() {
     },
   });
 
+  const { data: meData } = useQuery({
+    queryKey: ["me"],
+    queryFn: async () => (await api.getMe()).data,
+  });
+
+  const memberRole = meData?.businesses?.find((b) => b.id === businessId)?.memberRole;
+  const businessType = meData?.businesses?.find((b) => b.id === businessId)?.type;
+  const isManpowerHint = useIsManpowerTheme(businessId, businessType);
+  const showWorkforceStats = memberRole === "OWNER" || memberRole === "MANAGER";
+  const isManpowerAccount = isManpowerHint;
+
+  const { data: workforceStats } = useQuery({
+    queryKey: ["workforce-stats", businessId],
+    queryFn: async () => (await api.getWorkforceStats(businessId)).data,
+    enabled: showWorkforceStats && !isManpowerAccount,
+  });
+
   if (isLoading) {
+    if (isManpowerHint && showWorkforceStats) {
+      return (
+        <ManpowerPageShell analytics>
+          <div className="space-y-4 p-4 md:p-6">
+            <Skeleton className="h-24 rounded-[10px]" />
+            <StatsSkeleton />
+            <Skeleton className="h-64 rounded-[10px]" />
+          </div>
+        </ManpowerPageShell>
+      );
+    }
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-48" />
@@ -278,7 +316,17 @@ export default function DashboardOverviewPage() {
   }
 
   const industryType = (data.type?.toUpperCase() || "RESTAURANT") as IndustryType;
+  const industryCat = getIndustryCategory(normalizeBusinessType(data.type ?? businessType));
   const chartData = buildChartData(data.stats);
+
+  if ((industryCat === "manpower" || isManpowerHint) && showWorkforceStats) {
+    const isAr = locale === "ar";
+    return (
+      <ManpowerPageShell analytics>
+        <ManpowerAnalyticsDashboard businessId={businessId} isAr={isAr} />
+      </ManpowerPageShell>
+    );
+  }
 
   return (
     <motion.div
@@ -288,11 +336,44 @@ export default function DashboardOverviewPage() {
     >
       <div>
         <h1 className="text-2xl font-bold">{t(locale, "dashboard", "overview")}</h1>
-        <p className="text-muted-foreground text-sm mt-1 capitalize">{industryType.toLowerCase()}</p>
+        <p className="text-muted-foreground text-sm mt-1">
+          {getIndustryLabel(normalizeBusinessType(industryType), locale === "ar" ? "ar" : "en")}
+        </p>
       </div>
 
-      <StatCards type={industryType} stats={data.stats} locale={locale} />
+      {showWorkforceStats && workforceStats && industryCat !== "manpower" && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: t(locale, "dashboard", "staff"), value: workforceStats.totalMembers, icon: Users },
+            { label: locale === "ar" ? "المشرفون" : "Managers", value: workforceStats.managers, icon: UserCog },
+            { label: t(locale, "dashboard", "schedule"), value: workforceStats.todayShifts, icon: Calendar },
+            { label: t(locale, "dashboard", "tasks"), value: workforceStats.openTasks, icon: CheckSquare },
+          ].map(({ label, value, icon: Icon }) => (
+            <Card key={label}>
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">{label}</p>
+                  <p className="text-2xl font-bold">{value}</p>
+                </div>
+                <Icon className="w-8 h-8 text-primary opacity-80" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
+      {industryCat !== "manpower" && (
+        <BotSetupChecklist
+          businessId={businessId}
+          businessType={industryType}
+          locale={locale === "ar" ? "ar" : "en"}
+        />
+      )}
+
+      {industryCat !== "manpower" && <StatCards type={industryType} stats={data.stats} locale={locale} />}
+
+      {industryCat !== "manpower" && (
+      <>
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="!hover:scale-100">
@@ -407,21 +488,44 @@ export default function DashboardOverviewPage() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-3">
-            <Link href={`/dashboard/${businessId}/orders`}>
-              <Button variant="outline">{t(locale, "dashboard", "orders")}</Button>
-            </Link>
-            <Link href={`/dashboard/${businessId}/appointments`}>
-              <Button variant="outline">{t(locale, "dashboard", "appointments")}</Button>
-            </Link>
+            {(industryCat === "food" || industryCat === "retail") && (
+              <Link href={`/dashboard/${businessId}/orders`}>
+                <Button variant="outline">{t(locale, "dashboard", "orders")}</Button>
+              </Link>
+            )}
+            {industryCat === "service" && (
+              <Link href={`/dashboard/${businessId}/appointments`}>
+                <Button variant="outline">{t(locale, "dashboard", "appointments")}</Button>
+              </Link>
+            )}
             <Link href={`/dashboard/${businessId}/conversations`}>
               <Button variant="outline">{t(locale, "dashboard", "conversations")}</Button>
             </Link>
             <Link href={`/dashboard/${businessId}/catalog`}>
               <Button className="btn-primary">{t(locale, "dashboard", "catalog")}</Button>
             </Link>
+            <Link href={`/dashboard/${businessId}/settings?tab=profile`}>
+              <Button variant="outline">
+                {locale === "ar" ? "ملف المنشأة" : "Business Profile"}
+              </Button>
+            </Link>
+            <Link href={`/dashboard/${businessId}/ai`}>
+              <Button variant="outline" className="gap-2">
+                <Bot className="w-4 h-4" />
+                {t(locale, "dashboard", "aiBot")}
+              </Button>
+            </Link>
+            <Link href={`/dashboard/${businessId}/settings?tab=aiBot`}>
+              <Button variant="outline" className="gap-2">
+                <Settings className="w-4 h-4" />
+                {t(locale, "dashboard", "settings")}
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>
+      </>
+      )}
     </motion.div>
   );
 }

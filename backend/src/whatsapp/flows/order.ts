@@ -1,5 +1,5 @@
 import prisma from '../../utils/prisma';
-import { sendBotMessage } from './router';
+import { sendBotMessage } from './router-helpers';
 
 export async function orderFlow(
   businessId: string,

@@ -4,6 +4,7 @@ import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 import { generateOrderNumber } from '../utils/auth';
 import { validateBody, orderSchema, appointmentSchema } from '../utils/validation';
+import { ensureDefaultCatalog, touchCatalogCache } from '../services/catalogService';
 
 // Orders
 export async function getOrders(req: AuthRequest, res: Response): Promise<void> {
@@ -53,7 +54,7 @@ export async function getOrder(req: AuthRequest, res: Response): Promise<void> {
 
 export async function createOrder(req: AuthRequest, res: Response): Promise<void> {
   const validation = validateBody(orderSchema, req.body);
-  if (!validation.success) {
+  if (validation.success === false) {
     res.status(400).json({ success: false, errors: validation.errors });
     return;
   }
@@ -105,6 +106,15 @@ export async function updateOrderStatus(req: AuthRequest, res: Response): Promis
     include: { customer: true },
   });
 
+  if (updated?.customer?.phone && status) {
+    try {
+      const { runOrderWorkflow } = await import('../workflows/engine');
+      await runOrderWorkflow(req.params.businessId, req.params.orderId, status, updated.customer.phone);
+    } catch (err) {
+      console.error('[workflow] order status notification failed:', err);
+    }
+  }
+
   res.json({ success: true, data: updated });
 }
 
@@ -133,16 +143,25 @@ export async function getAppointments(req: AuthRequest, res: Response): Promise<
 
 export async function createAppointment(req: AuthRequest, res: Response): Promise<void> {
   const validation = validateBody(appointmentSchema, req.body);
-  if (!validation.success) {
+  if (validation.success === false) {
     res.status(400).json({ success: false, errors: validation.errors });
     return;
   }
 
+  const { customerId, staffId, serviceId, serviceName, date, startTime, endTime, notes } =
+    validation.data;
+
   const appointment = await prisma.appointment.create({
     data: {
       businessId: req.params.businessId,
-      ...validation.data,
-      date: new Date(validation.data.date),
+      customerId,
+      staffId,
+      serviceId,
+      serviceName,
+      date: new Date(date),
+      startTime,
+      endTime,
+      notes,
     },
     include: { customer: true, staff: true },
   });
@@ -173,6 +192,15 @@ export async function updateAppointment(req: AuthRequest, res: Response): Promis
     where: { id: req.params.appointmentId },
     include: { customer: true, staff: true },
   });
+
+  if (updated?.customer?.phone && status) {
+    try {
+      const { runAppointmentWorkflow } = await import('../workflows/engine');
+      await runAppointmentWorkflow(req.params.businessId, req.params.appointmentId, status, updated.customer.phone);
+    } catch (err) {
+      console.error('[workflow] appointment notification failed:', err);
+    }
+  }
 
   res.json({ success: true, data: updated });
 }
@@ -250,19 +278,46 @@ export async function updateCustomer(req: AuthRequest, res: Response): Promise<v
 
 // Catalog
 export async function getCatalog(req: AuthRequest, res: Response): Promise<void> {
-  const catalogs = await prisma.catalog.findMany({
+  let catalogs = await prisma.catalog.findMany({
     where: { businessId: req.params.businessId },
     include: { items: { orderBy: { sortOrder: 'asc' } } },
   });
+
+  if (catalogs.length === 0) {
+    const catalogId = await ensureDefaultCatalog(req.params.businessId);
+    const catalog = await prisma.catalog.findUnique({
+      where: { id: catalogId },
+      include: { items: { orderBy: { sortOrder: 'asc' } } },
+    });
+    if (catalog) catalogs = [catalog];
+  }
 
   res.json({ success: true, data: catalogs });
 }
 
 export async function createCatalogItem(req: AuthRequest, res: Response): Promise<void> {
+  const body = req.body as Record<string, unknown>;
+  const catalogId = String(body.catalogId || '').trim() || (await ensureDefaultCatalog(req.params.businessId));
+
   const item = await prisma.catalogItem.create({
-    data: { businessId: req.params.businessId, ...req.body },
+    data: {
+      businessId: req.params.businessId,
+      catalogId,
+      nameAr: String(body.nameAr || body.nameEn || 'Product'),
+      nameEn: String(body.nameEn || body.nameAr || 'Product'),
+      descriptionAr: body.descriptionAr ? String(body.descriptionAr) : undefined,
+      descriptionEn: body.descriptionEn ? String(body.descriptionEn) : undefined,
+      price: Number(body.price) || 0,
+      discountPrice: body.discountPrice != null ? Number(body.discountPrice) : undefined,
+      category: body.category ? String(body.category) : undefined,
+      duration: body.duration != null ? Number(body.duration) : undefined,
+      image: body.image ? String(body.image) : undefined,
+      isAvailable: body.isAvailable !== false,
+      sortOrder: body.sortOrder != null ? Number(body.sortOrder) : 0,
+    },
   });
 
+  touchCatalogCache(req.params.businessId);
   res.status(201).json({ success: true, data: item });
 }
 
@@ -278,6 +333,7 @@ export async function updateCatalogItem(req: AuthRequest, res: Response): Promis
   }
 
   const updated = await prisma.catalogItem.findUnique({ where: { id: req.params.itemId } });
+  touchCatalogCache(req.params.businessId);
   res.json({ success: true, data: updated });
 }
 
@@ -286,6 +342,7 @@ export async function deleteCatalogItem(req: AuthRequest, res: Response): Promis
     where: { id: req.params.itemId, businessId: req.params.businessId },
   });
 
+  touchCatalogCache(req.params.businessId);
   res.json({ success: true, message: 'Item deleted' });
 }
 
@@ -318,10 +375,22 @@ export async function getConversationMessages(req: AuthRequest, res: Response): 
 
 export async function sendMessage(req: AuthRequest, res: Response): Promise<void> {
   const { content, messageType = 'TEXT' } = req.body;
+  const businessId = req.params.businessId;
+  const conversationId = req.params.conversationId;
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, businessId },
+    include: { customer: true },
+  });
+
+  if (!conversation) {
+    res.status(404).json({ success: false, message: 'Conversation not found' });
+    return;
+  }
 
   const message = await prisma.message.create({
     data: {
-      conversationId: req.params.conversationId,
+      conversationId,
       senderType: 'AGENT',
       messageType,
       content,
@@ -329,9 +398,24 @@ export async function sendMessage(req: AuthRequest, res: Response): Promise<void
   });
 
   await prisma.conversation.update({
-    where: { id: req.params.conversationId },
-    data: { lastMessageAt: new Date(), isBotHandling: false },
+    where: { id: conversationId },
+    data: { lastMessageAt: new Date(), isBotHandling: false, status: 'ACTIVE' },
   });
+
+  if (conversation.customer?.phone && content?.trim()) {
+    try {
+      const { sendWhatsAppText } = await import('../services/whatsappSend');
+      await sendWhatsAppText(businessId, conversation.customer.phone, content.trim());
+    } catch (err) {
+      console.error('[sendMessage] WhatsApp delivery failed:', err);
+      res.status(201).json({
+        success: true,
+        data: message,
+        warning: 'Message saved but WhatsApp delivery failed',
+      });
+      return;
+    }
+  }
 
   res.status(201).json({ success: true, data: message });
 }
@@ -365,11 +449,43 @@ export async function getCampaigns(req: AuthRequest, res: Response): Promise<voi
 }
 
 export async function createCampaign(req: AuthRequest, res: Response): Promise<void> {
+  const body = req.body as Record<string, unknown>;
+  const status = String(body.status || 'DRAFT').toUpperCase();
+  const scheduledAt = body.scheduledAt ? new Date(String(body.scheduledAt)) : undefined;
+
   const campaign = await prisma.campaign.create({
-    data: { businessId: req.params.businessId, ...req.body },
+    data: {
+      businessId: req.params.businessId,
+      name: String(body.name || 'Campaign'),
+      type: String(body.type || 'broadcast'),
+      message: String(body.message || ''),
+      target: (body.target as Prisma.InputJsonValue) || {},
+      status: status === 'SENT' || status === 'ACTIVE' ? 'ACTIVE' : status === 'SCHEDULED' ? 'SCHEDULED' : 'DRAFT',
+      scheduledAt,
+    },
   });
 
+  if (campaign.status === 'ACTIVE') {
+    const { sendCampaignBroadcast } = await import('../services/campaignService');
+    const result = await sendCampaignBroadcast(req.params.businessId, campaign.id);
+    const updated = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+    res.status(201).json({ success: true, data: updated, sendResult: result });
+    return;
+  }
+
+  if (campaign.status === 'SCHEDULED' && scheduledAt && scheduledAt > new Date()) {
+    const { scheduleCampaignSend } = await import('../services/campaignService');
+    await scheduleCampaignSend(req.params.businessId, campaign.id, scheduledAt);
+  }
+
   res.status(201).json({ success: true, data: campaign });
+}
+
+export async function sendCampaign(req: AuthRequest, res: Response): Promise<void> {
+  const { sendCampaignBroadcast } = await import('../services/campaignService');
+  const result = await sendCampaignBroadcast(req.params.businessId, req.params.campaignId);
+  const campaign = await prisma.campaign.findUnique({ where: { id: req.params.campaignId } });
+  res.json({ success: true, data: campaign, sendResult: result });
 }
 
 export async function getPromoCodes(req: AuthRequest, res: Response): Promise<void> {
@@ -389,12 +505,52 @@ export async function createPromoCode(req: AuthRequest, res: Response): Promise<
   res.status(201).json({ success: true, data: code });
 }
 
+export async function updatePromoCode(req: AuthRequest, res: Response): Promise<void> {
+  const updated = await prisma.promoCode.updateMany({
+    where: { id: req.params.promoId, businessId: req.params.businessId },
+    data: req.body,
+  });
+  if (updated.count === 0) {
+    res.status(404).json({ success: false, message: 'Promo code not found' });
+    return;
+  }
+  const code = await prisma.promoCode.findUnique({ where: { id: req.params.promoId } });
+  res.json({ success: true, data: code });
+}
+
+export async function deletePromoCode(req: AuthRequest, res: Response): Promise<void> {
+  await prisma.promoCode.deleteMany({
+    where: { id: req.params.promoId, businessId: req.params.businessId },
+  });
+  res.json({ success: true, message: 'Promo code deleted' });
+}
+
 export async function getLoyaltyRewards(req: AuthRequest, res: Response): Promise<void> {
   const rewards = await prisma.loyaltyReward.findMany({
     where: { businessId: req.params.businessId },
   });
 
   res.json({ success: true, data: rewards });
+}
+
+export async function createLoyaltyReward(req: AuthRequest, res: Response): Promise<void> {
+  const reward = await prisma.loyaltyReward.create({
+    data: { businessId: req.params.businessId, ...req.body },
+  });
+  res.status(201).json({ success: true, data: reward });
+}
+
+export async function updateLoyaltyReward(req: AuthRequest, res: Response): Promise<void> {
+  const updated = await prisma.loyaltyReward.updateMany({
+    where: { id: req.params.rewardId, businessId: req.params.businessId },
+    data: req.body,
+  });
+  if (updated.count === 0) {
+    res.status(404).json({ success: false, message: 'Reward not found' });
+    return;
+  }
+  const reward = await prisma.loyaltyReward.findUnique({ where: { id: req.params.rewardId } });
+  res.json({ success: true, data: reward });
 }
 
 // Analytics
@@ -407,7 +563,11 @@ export async function getAnalytics(req: AuthRequest, res: Response): Promise<voi
   startDate.setDate(startDate.getDate() - days);
   startDate.setHours(0, 0, 0, 0);
 
-  const [orders, customers, revenue, conversations] = await Promise.all([
+  const { getBusinessAnalytics } = await import('../analytics/eventTracker');
+  const { getIntelligenceSummary } = await import('../intelligence/conversationAnalyzer');
+  const { getFunnelAnalytics } = await import('../analytics/funnelTracker');
+
+  const [orders, customers, revenue, conversations, botAnalytics, intelligence, funnel] = await Promise.all([
     prisma.order.findMany({
       where: { businessId, createdAt: { gte: startDate } },
       orderBy: { createdAt: 'asc' },
@@ -418,6 +578,9 @@ export async function getAnalytics(req: AuthRequest, res: Response): Promise<voi
       _sum: { total: true },
     }),
     prisma.conversation.count({ where: { businessId, createdAt: { gte: startDate } } }),
+    getBusinessAnalytics(businessId, days),
+    getIntelligenceSummary(businessId),
+    getFunnelAnalytics(businessId, days),
   ]);
 
   const ordersByDay: Record<string, number> = {};
@@ -445,6 +608,7 @@ export async function getAnalytics(req: AuthRequest, res: Response): Promise<voi
       revenueByDay,
       statusDistribution,
       avgOrderValue: orders.length ? (revenue._sum.total || 0) / orders.length : 0,
+      bot: { ...botAnalytics, intelligence, funnel },
     },
   });
 }
@@ -505,6 +669,27 @@ export async function createStaff(req: AuthRequest, res: Response): Promise<void
   });
 
   res.status(201).json({ success: true, data: member });
+}
+
+export async function updateStaff(req: AuthRequest, res: Response): Promise<void> {
+  const updated = await prisma.staff.updateMany({
+    where: { id: req.params.staffId, businessId: req.params.businessId },
+    data: req.body,
+  });
+  if (updated.count === 0) {
+    res.status(404).json({ success: false, message: 'Staff not found' });
+    return;
+  }
+  const member = await prisma.staff.findUnique({ where: { id: req.params.staffId } });
+  res.json({ success: true, data: member });
+}
+
+export async function deleteStaff(req: AuthRequest, res: Response): Promise<void> {
+  await prisma.staff.updateMany({
+    where: { id: req.params.staffId, businessId: req.params.businessId },
+    data: { isActive: false },
+  });
+  res.json({ success: true, message: 'Staff deactivated' });
 }
 
 export async function getNotifications(req: AuthRequest, res: Response): Promise<void> {

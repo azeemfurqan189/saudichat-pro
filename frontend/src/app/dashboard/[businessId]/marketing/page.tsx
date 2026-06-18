@@ -49,6 +49,12 @@ export default function MarketingPage() {
     discountValue: "",
     maxUses: "",
   });
+  const [loyaltyForm, setLoyaltyForm] = useState({
+    name: "",
+    nameAr: "",
+    pointsRequired: "",
+    description: "",
+  });
 
   const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
     queryKey: ["campaigns", businessId],
@@ -76,11 +82,27 @@ export default function MarketingPage() {
 
   const createCampaignMutation = useMutation({
     mutationFn: (data: Partial<Campaign>) => api.createCampaign(businessId, data),
-    onSuccess: () => {
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["campaigns", businessId] });
-      toast.success(isAr ? "تم الإرسال/الجدولة" : "Broadcast scheduled");
+      const sent = (res as { sendResult?: { sent: number } }).sendResult?.sent;
+      if (sent != null) {
+        toast.success(isAr ? `تم الإرسال إلى ${sent} عميل` : `Sent to ${sent} customers`);
+      } else {
+        toast.success(isAr ? "تم الجدولة" : "Broadcast scheduled");
+      }
       setBroadcastMsg("");
       setScheduleDate("");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const createLoyaltyMutation = useMutation({
+    mutationFn: (data: Partial<{ name: string; nameAr: string; pointsRequired: number; description: string; isActive: boolean }>) =>
+      api.createLoyaltyReward(businessId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["loyalty", businessId] });
+      toast.success(isAr ? "تم إنشاء المكافأة" : "Reward created");
+      setLoyaltyForm({ name: "", nameAr: "", pointsRequired: "", description: "" });
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -107,7 +129,7 @@ export default function MarketingPage() {
       name: isAr ? "بث جماعي" : "Broadcast",
       type: "broadcast",
       message: broadcastMsg,
-      status: scheduled ? "scheduled" : "sent",
+      status: scheduled ? "SCHEDULED" : "ACTIVE",
       scheduledAt: scheduled && scheduleDate ? scheduleDate : undefined,
     });
   };
@@ -351,42 +373,91 @@ export default function MarketingPage() {
           )}
 
           {tab === "loyalty" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>{isAr ? "برنامج الولاء" : "Loyalty Program"}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {loyaltyLoading ? (
-                  <TableSkeleton rows={4} />
-                ) : loyaltyRewards.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{t(locale, "dashboard", "noData")}</p>
-                ) : (
-                  <div className="grid md:grid-cols-2 gap-4">
-                    {loyaltyRewards.map((reward) => (
-                      <div
-                        key={reward.id}
-                        className="p-4 rounded-xl bg-muted/40 flex items-center gap-4"
-                      >
-                        <div className="w-12 h-12 rounded-xl bg-gradient-gold flex items-center justify-center">
-                          <Gift className="w-6 h-6 text-white" />
+            <div className="grid lg:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>{isAr ? "إضافة مكافأة" : "Add Reward"}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      createLoyaltyMutation.mutate({
+                        name: loyaltyForm.name,
+                        nameAr: loyaltyForm.nameAr || loyaltyForm.name,
+                        pointsRequired: parseInt(loyaltyForm.pointsRequired, 10) || 0,
+                        description: loyaltyForm.description,
+                        isActive: true,
+                      });
+                    }}
+                    className="space-y-4"
+                  >
+                    <Input
+                      label={isAr ? "الاسم (EN)" : "Name (EN)"}
+                      value={loyaltyForm.name}
+                      onChange={(e) => setLoyaltyForm({ ...loyaltyForm, name: e.target.value })}
+                      required
+                    />
+                    <Input
+                      label={isAr ? "الاسم (AR)" : "Name (AR)"}
+                      value={loyaltyForm.nameAr}
+                      onChange={(e) => setLoyaltyForm({ ...loyaltyForm, nameAr: e.target.value })}
+                    />
+                    <Input
+                      label={isAr ? "النقاط المطلوبة" : "Points Required"}
+                      type="number"
+                      value={loyaltyForm.pointsRequired}
+                      onChange={(e) => setLoyaltyForm({ ...loyaltyForm, pointsRequired: e.target.value })}
+                      required
+                    />
+                    <Input
+                      label={isAr ? "الوصف" : "Description"}
+                      value={loyaltyForm.description}
+                      onChange={(e) => setLoyaltyForm({ ...loyaltyForm, description: e.target.value })}
+                    />
+                    <Button type="submit" loading={createLoyaltyMutation.isPending} className="w-full">
+                      {t(locale, "dashboard", "add")}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>{isAr ? "برنامج الولاء" : "Loyalty Program"}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {loyaltyLoading ? (
+                    <TableSkeleton rows={4} />
+                  ) : loyaltyRewards.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{t(locale, "dashboard", "noData")}</p>
+                  ) : (
+                    <div className="grid gap-4">
+                      {loyaltyRewards.map((reward) => (
+                        <div
+                          key={reward.id}
+                          className="p-4 rounded-xl bg-muted/40 flex items-center gap-4"
+                        >
+                          <div className="w-12 h-12 rounded-xl bg-gradient-gold flex items-center justify-center">
+                            <Gift className="w-6 h-6 text-white" />
+                          </div>
+                          <div>
+                            <p className="font-semibold">
+                              {isAr && reward.nameAr ? reward.nameAr : reward.name}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {reward.pointsRequired} {isAr ? "نقطة" : "points"}
+                            </p>
+                          </div>
+                          {reward.isActive && (
+                            <CheckCircle className="w-5 h-5 text-primary ms-auto" />
+                          )}
                         </div>
-                        <div>
-                          <p className="font-semibold">
-                            {isAr && reward.nameAr ? reward.nameAr : reward.name}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {reward.pointsRequired} {isAr ? "نقطة" : "points"}
-                          </p>
-                        </div>
-                        {reward.isActive && (
-                          <CheckCircle className="w-5 h-5 text-primary ms-auto" />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           )}
         </motion.div>
       </AnimatePresence>

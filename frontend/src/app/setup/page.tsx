@@ -11,6 +11,9 @@ import {
   Building2,
   GraduationCap,
   Car,
+  BedDouble,
+  Truck,
+  HardHat,
   MoreHorizontal,
   MessageCircle,
   Check,
@@ -29,6 +32,7 @@ import { AuthGuard } from "@/components/dashboard/auth-guard";
 import { useApp } from "@/lib/context";
 import { t } from "@/lib/i18n";
 import { api } from "@/lib/api";
+import { warmupApi } from "@/lib/api-config";
 import { cn } from "@/lib/utils";
 
 const INDUSTRIES = [
@@ -37,18 +41,32 @@ const INDUSTRIES = [
   { id: "salon", icon: Scissors, labelEn: "Beauty & Salon", labelAr: "تجميل وصالون" },
   { id: "healthcare", icon: Stethoscope, labelEn: "Healthcare", labelAr: "رعاية صحية" },
   { id: "realestate", icon: Building2, labelEn: "Real Estate", labelAr: "عقارات" },
+  { id: "hotel", icon: BedDouble, labelEn: "Hotel", labelAr: "فندق" },
+  { id: "logistics", icon: Truck, labelEn: "Logistics", labelAr: "لوجستيات" },
   { id: "education", icon: GraduationCap, labelEn: "Education", labelAr: "تعليم" },
   { id: "automotive", icon: Car, labelEn: "Automotive", labelAr: "سيارات" },
+  { id: "manpower", icon: HardHat, labelEn: "Manpower Agency", labelAr: "وكالة manpower" },
   { id: "other", icon: MoreHorizontal, labelEn: "Other", labelAr: "أخرى" },
 ];
 
-const PLANS = [
-  { id: "starter", nameEn: "Starter", nameAr: "المبتدئ", price: 299 },
-  { id: "business", nameEn: "Business", nameAr: "الأعمال", price: 599, popular: true },
-  { id: "enterprise", nameEn: "Enterprise", nameAr: "المؤسسات", price: 1499 },
-];
+const INDUSTRY_TO_TYPE: Record<string, string> = {
+  restaurant: "RESTAURANT",
+  retail: "RETAIL",
+  salon: "SALON",
+  healthcare: "CLINIC",
+  realestate: "REAL_ESTATE",
+  hotel: "HOTEL",
+  logistics: "LOGISTICS",
+  education: "EDUCATION",
+  automotive: "CAR_WORKSHOP",
+  manpower: "MANPOWER",
+  other: "CUSTOM",
+};
 
-const STEPS = ["step1", "step2", "step3", "step4", "step5", "step6"] as const;
+const STEPS = ["step1", "step2", "step3", "step4", "step6"] as const;
+
+const DEFAULT_GREETING_EN = "Hello! How can I help you today?";
+const DEFAULT_GREETING_AR = "مرحباً! كيف أقدر أساعدك اليوم؟";
 
 function Confetti() {
   const particles = Array.from({ length: 50 }, (_, i) => ({
@@ -89,6 +107,7 @@ export default function SetupPage() {
 
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
   const [showConfetti, setShowConfetti] = useState(false);
   const [createdBusinessId, setCreatedBusinessId] = useState<string | null>(null);
 
@@ -102,7 +121,6 @@ export default function SetupPage() {
     whatsappNumber: "",
     botGreeting: "",
     botLanguage: "both",
-    plan: "business",
   });
 
   const canNext = () => {
@@ -111,58 +129,99 @@ export default function SetupPage() {
         return !!form.industry;
       case 1:
         return !!form.name;
-      case 2:
-        return !!form.whatsappNumber;
-      case 3:
-        return !!form.botGreeting;
-      case 4:
-        return !!form.plan;
       default:
         return true;
     }
   };
 
-  const handleNext = async () => {
-    if (step === 4) {
-      setLoading(true);
-      try {
-        const res = await api.createBusiness({
-          name: form.name,
-          nameAr: form.nameAr || undefined,
-          type: form.industry,
-          description: form.description || undefined,
-          whatsappNumber: form.whatsappNumber,
-          whatsappPhoneId: form.phoneId || undefined,
-          whatsappToken: form.whatsappToken || undefined,
-          subscriptionPlan: form.plan,
-          settings: {
-            botGreeting: form.botGreeting,
-            botLanguage: form.botLanguage,
-          },
-        });
-        if (res.data?.id) {
-          setCreatedBusinessId(res.data.id);
-          if (form.phoneId && form.whatsappToken) {
-            await api.testWhatsApp(res.data.id, form.phoneId, form.whatsappToken);
-          }
-        }
-        setStep(5);
-        setShowConfetti(true);
-        toast.success(t(locale, "setup", "botLive"));
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Setup failed");
-      } finally {
-        setLoading(false);
+  const finishSetup = async () => {
+    setLoading(true);
+    setLoadingMessage(isAr ? "سرور سے رابطہ..." : "Connecting to server...");
+    try {
+      await warmupApi(45000);
+
+      setLoadingMessage(isAr ? "اکاؤنٹ بن رہا ہے..." : "Creating your account...");
+      const businessType = INDUSTRY_TO_TYPE[form.industry] || "CUSTOM";
+      const greeting =
+        form.botGreeting.trim() ||
+        (isAr ? DEFAULT_GREETING_AR : DEFAULT_GREETING_EN);
+
+      const res = await api.createBusiness({
+        name: form.name,
+        nameAr: form.nameAr || undefined,
+        type: businessType,
+        description: form.description || undefined,
+        whatsappNumber: form.whatsappNumber.trim() || undefined,
+        whatsappPhoneId: form.phoneId.trim() || undefined,
+        whatsappToken: form.whatsappToken.trim() || undefined,
+        subscriptionPlan: "STARTER",
+        settings: {
+          botGreeting: greeting,
+          botLanguage: form.botLanguage,
+          setupSkippedWhatsApp: !form.phoneId && !form.whatsappToken,
+          setupSkippedBotConfig: !form.botGreeting.trim(),
+        },
+      });
+
+      if (!res.data?.id) {
+        throw new Error(isAr ? "اکاؤنٹ نہیں بن سکا" : "Could not create account");
       }
+
+      setCreatedBusinessId(res.data.id);
+
+      if (form.phoneId && form.whatsappToken) {
+        setLoadingMessage(isAr ? "واتساب ٹیسٹ..." : "Testing WhatsApp...");
+        try {
+          await api.testWhatsApp(res.data.id, form.phoneId, form.whatsappToken);
+        } catch {
+          toast.warning(
+            isAr
+              ? "واتساب بعد میں Settings سے جوڑیں"
+              : "Add WhatsApp later in Settings"
+          );
+        }
+      }
+
+      setStep(4);
+      setShowConfetti(true);
+      toast.success(isAr ? "اکاؤنٹ بن گیا!" : "Account created!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Setup failed");
+    } finally {
+      setLoading(false);
+      setLoadingMessage("");
+    }
+  };
+
+  const handleNext = async () => {
+    if (step === 3) {
+      await finishSetup();
       return;
     }
-    setStep((s) => Math.min(s + 1, 5));
+    setStep((s) => Math.min(s + 1, 4));
+  };
+
+  const handleSkip = async () => {
+    if (step === 0 && !form.industry) {
+      toast.error(isAr ? "پہلے industry منتخب کریں" : "Select an industry first");
+      return;
+    }
+    if (step === 1 && !form.name.trim()) {
+      toast.error(isAr ? "کاروبار کا نام درج کریں" : "Enter business name");
+      return;
+    }
+    await finishSetup();
   };
 
   const handleBack = () => setStep((s) => Math.max(s - 1, 0));
 
   const goToDashboard = () => {
     router.push(createdBusinessId ? `/dashboard/${createdBusinessId}` : "/login");
+  };
+
+  const goToSettings = (settingsTab: "whatsapp" | "aiBot") => {
+    if (!createdBusinessId) return;
+    router.push(`/dashboard/${createdBusinessId}/settings?tab=${settingsTab}`);
   };
 
   return (
@@ -276,12 +335,32 @@ export default function SetupPage() {
                         className="w-full rounded-xl border border-border bg-white/50 dark:bg-gray-900/50 p-4 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                       />
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      {isAr
+                        ? "واتساب والبوت بعد میں Settings سے شامل کر سکتے ہیں"
+                        : "WhatsApp and bot can be added later in Settings"}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full"
+                      onClick={handleSkip}
+                      disabled={loading || !form.name.trim()}
+                      loading={loading}
+                    >
+                      {isAr ? "اکاؤنٹ بنائیں (باقی skip)" : "Create account (skip rest)"}
+                    </Button>
                   </div>
                 )}
 
                 {step === 2 && (
                   <div className="space-y-4 max-w-md mx-auto">
                     <h2 className="text-xl font-semibold mb-2">{t(locale, "setup", "connectWhatsApp")}</h2>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      {isAr
+                        ? "اختياري — يمكنك تخطي هذه الخطوة وإضافة واتساب لاحقاً من الإعدادات"
+                        : "Optional — skip and add WhatsApp later in Settings"}
+                    </p>
                     <Input
                       label={isAr ? "رقم واتساب" : "WhatsApp Number"}
                       value={form.whatsappNumber}
@@ -307,6 +386,15 @@ export default function SetupPage() {
                         ? "احصل على هذه البيانات من Meta Business Suite"
                         : "Get these credentials from Meta Business Suite"}
                     </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full text-muted-foreground"
+                      onClick={handleSkip}
+                      disabled={loading}
+                    >
+                      {isAr ? "Skip — بعد میں Settings" : "Skip — add in Settings later"}
+                    </Button>
                   </div>
                 )}
 
@@ -316,6 +404,11 @@ export default function SetupPage() {
                       <Bot className="w-5 h-5" />
                       {t(locale, "setup", "configureBot")}
                     </h2>
+                    <p className="text-sm text-muted-foreground">
+                      {isAr
+                        ? "اختياري — Default greeting استعمال ہوگی اگر خالی چھوڑیں"
+                        : "Optional — default greeting used if left empty"}
+                    </p>
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium text-muted-foreground">
                         {isAr ? "رسالة الترحيب" : "Greeting Message"}
@@ -346,44 +439,19 @@ export default function SetupPage() {
                         <option value="en">{isAr ? "إنجليزي فقط" : "English Only"}</option>
                       </select>
                     </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full text-muted-foreground"
+                      onClick={handleSkip}
+                      disabled={loading}
+                    >
+                      {isAr ? "Skip — بعد میں Settings" : "Skip — configure in Settings later"}
+                    </Button>
                   </div>
                 )}
 
                 {step === 4 && (
-                  <div>
-                    <h2 className="text-xl font-semibold mb-6">{t(locale, "setup", "choosePlan")}</h2>
-                    <div className="grid md:grid-cols-3 gap-4">
-                      {PLANS.map((plan) => (
-                        <button
-                          key={plan.id}
-                          onClick={() => setForm({ ...form, plan: plan.id })}
-                          className={cn(
-                            "p-5 rounded-xl border-2 text-start transition-all hover:scale-[1.02] relative",
-                            form.plan === plan.id
-                              ? "border-primary bg-primary/10 shadow-glow-green"
-                              : "border-border hover:border-primary/50",
-                            plan.popular && "ring-1 ring-secondary"
-                          )}
-                        >
-                          {plan.popular && (
-                            <span className="absolute -top-2 end-3 text-[10px] bg-secondary text-white px-2 py-0.5 rounded-full">
-                              {isAr ? "شائع" : "Popular"}
-                            </span>
-                          )}
-                          <p className="font-bold">{isAr ? plan.nameAr : plan.nameEn}</p>
-                          <p className="text-2xl font-bold text-primary mt-2">
-                            {plan.price}
-                            <span className="text-sm font-normal text-muted-foreground">
-                              {isAr ? " ر.س" : " SAR"}
-                            </span>
-                          </p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {step === 5 && (
                   <div className="text-center py-8">
                     <motion.div
                       initial={{ scale: 0 }}
@@ -394,7 +462,19 @@ export default function SetupPage() {
                       <Sparkles className="w-10 h-10 text-white" />
                     </motion.div>
                     <h2 className="text-2xl font-bold mb-2">{t(locale, "setup", "confirmation")}</h2>
-                    <p className="text-muted-foreground mb-8">{t(locale, "setup", "botLive")}</p>
+                    <p className="text-muted-foreground mb-6">
+                      {isAr
+                        ? "اکاؤنٹ تیار ہے — واتساب اور بوت Settings میں شامل کریں"
+                        : "Account ready — add WhatsApp & bot in Settings anytime"}
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3 justify-center mb-6">
+                      <Button variant="outline" onClick={() => goToSettings("whatsapp")}>
+                        {isAr ? "Settings → WhatsApp" : "Settings → WhatsApp"}
+                      </Button>
+                      <Button variant="outline" onClick={() => goToSettings("aiBot")}>
+                        {isAr ? "Settings → AI Bot" : "Settings → AI Bot"}
+                      </Button>
+                    </div>
                     <Button size="lg" onClick={goToDashboard}>
                       {t(locale, "setup", "goToDashboard")}
                       <NextIcon className="w-5 h-5" />
@@ -404,16 +484,31 @@ export default function SetupPage() {
               </motion.div>
             </AnimatePresence>
 
-            {step < 5 && (
-              <div className="flex justify-between mt-8 pt-6 border-t border-border/50">
-                <Button variant="outline" onClick={handleBack} disabled={step === 0}>
+            {step < 4 && (
+              <div className="flex justify-between items-center mt-8 pt-6 border-t border-border/50 gap-3">
+                <Button variant="outline" onClick={handleBack} disabled={step === 0 || loading}>
                   <BackIcon className="w-4 h-4" />
                   {isAr ? "السابق" : "Back"}
                 </Button>
-                <Button onClick={handleNext} disabled={!canNext()} loading={loading}>
-                  {step === 4 ? (isAr ? "إنهاء الإعداد" : "Complete Setup") : isAr ? "التالي" : "Next"}
-                  <NextIcon className="w-4 h-4" />
-                </Button>
+                <div className="flex gap-2">
+                  {(step === 2 || step === 3) && (
+                    <Button variant="ghost" onClick={handleSkip} disabled={loading}>
+                      {isAr ? "Skip" : "Skip"}
+                    </Button>
+                  )}
+                  <Button onClick={handleNext} disabled={!canNext() || loading} loading={loading}>
+                    {loading && loadingMessage
+                      ? loadingMessage
+                      : step === 3
+                        ? isAr
+                          ? "اکاؤنٹ بنائیں"
+                          : "Create Account"
+                        : isAr
+                          ? "التالي"
+                          : "Next"}
+                    {!loading && <NextIcon className="w-4 h-4" />}
+                  </Button>
+                </div>
               </div>
             )}
           </Card>

@@ -15,7 +15,11 @@ enum BusinessType {
   GYM
   RETAIL
   REAL_ESTATE
+  HOTEL
+  LOGISTICS
+  EDUCATION
   CAR_WORKSHOP
+  MANPOWER
   CUSTOM
 }
 
@@ -119,6 +123,30 @@ enum NotificationType {
   MARKETING
 }
 
+enum DealStage {
+  LEAD
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  WON
+  LOST
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
 model User {
   id        String   @id @default(uuid())
   name      String
@@ -132,6 +160,8 @@ model User {
   businesses    Business[]
   notifications Notification[]
   staffRoles    Staff[]
+  memberships   BusinessMember[]
+  memberInvites MemberInvite[]
 }
 
 model Business {
@@ -167,6 +197,85 @@ model Business {
   promoCodes    PromoCode[]
   loyaltyRewards LoyaltyReward[]
   notifications Notification[]
+  knowledgeDocuments KnowledgeDocument[]
+  faqCandidates      FaqCandidate[]
+  workflowLogs       WorkflowLog[]
+  deals              Deal[]
+  tasks              Task[]
+  automationWorkflows AutomationWorkflow[]
+  consentRecords     ConsentRecord[]
+  liveChatSessions   LiveChatSession[]
+  leads              Lead[]
+  referrals          Referral[]
+  reviews            Review[]
+  feedbacks          CustomerFeedback[]
+  apiKeys            ApiKey[]
+  channelIntegrations ChannelIntegration[]
+  suppliers          Supplier[]
+  deliveries         Delivery[]
+  journeyEvents      CustomerJourneyEvent[]
+  properties         Property[]
+  propertyViewings   PropertyViewing[]
+  hotelRooms         HotelRoom[]
+  hotelReservations  HotelReservation[]
+  shipments          Shipment[]
+  fleetVehicles      FleetVehicle[]
+  courses            Course[]
+  enrollments        Enrollment[]
+  vehicleJobs        VehicleJob[]
+  members            BusinessMember[]
+  memberInvites      MemberInvite[]
+  workShifts         WorkShift[]
+  attendanceRecords  AttendanceRecord[]
+  clientCompanies    ClientCompany[]
+  workerProfiles     WorkerProfile[]
+  agencyProjects     AgencyProject[]
+  workerDailyAttendance WorkerDailyAttendance[]
+  projectMemberAccess ProjectMemberAccess[]
+  placements         Placement[]
+  timesheets         Timesheet[]
+  agencyEquipment    AgencyEquipment[]
+  functionalLocations FunctionalLocation[]
+  locationHierarchies LocationHierarchy[]
+  workRequests       WorkRequest[]
+  workOrders         WorkOrder[]
+  maintenancePlans   MaintenancePlan[]
+  pmSchedules        PmSchedule[]
+  pmHistory          PmHistory[]
+  spareParts         SparePart[]
+  inventoryTransactions InventoryTransaction[]
+  purchaseRequisitions PurchaseRequisition[]
+  purchaseOrders       PurchaseOrder[]
+  cmmsFinanceConfig    CmmsFinanceConfig?
+  cmmsHrConfig         CmmsHrConfig?
+  workerCertifications WorkerCertification[]
+  workerTraining       WorkerTraining[]
+  cmmsNotificationConfig CmmsNotificationConfig?
+  notificationDeliveries NotificationDeliveryLog[]
+  cmmsSecurityConfig     CmmsSecurityConfig?
+  programs               Program[]
+  scheduleProjects       ScheduleProject[]
+  wbsNodes               WbsNode[]
+  scheduleActivities     ScheduleActivity[]
+  activityDependencies   ActivityDependency[]
+  activityResources      ActivityResource[]
+  activityMaterials      ActivityMaterial[]
+  scheduleBaselines      ScheduleBaseline[]
+  scheduleChangeOrders   ScheduleChangeOrder[]
+  assetComponents          AssetComponent[]
+  assetBomItems            AssetBomItem[]
+  equipmentMeterReadings   EquipmentMeterReading[]
+  calibrationRecords       CalibrationRecord[]
+  projectFinancialEntries  ProjectFinancialEntry[]
+  projectMilestones        ProjectMilestone[]
+  subcontractors           Subcontractor[]
+  subcontractorPos         SubcontractorPurchaseOrder[]
+  subcontractorTimesheets  SubcontractorTimesheet[]
+  subcontractorInvoices    SubcontractorInvoice[]
+  workerLeaveBalances      WorkerLeaveBalance[]
+  workerLeaveRequests      WorkerLeaveRequest[]
+  workerCompetencies       WorkerCompetency[]
+  workerSuccessions        WorkerSuccession[]
 
   @@index([userId])
   @@index([slug])
@@ -183,6 +292,9 @@ model Customer {
   loyaltyPoints   Int       @default(0)
   tags            String[]  @default([])
   notes           String?
+  leadScore       Int       @default(0)
+  churnRisk       String    @default("LOW")
+  intelligence    Json      @default("{}")
   lastInteraction DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -191,6 +303,18 @@ model Customer {
   orders        Order[]
   appointments  Appointment[]
   conversations Conversation[]
+  deals         Deal[]
+  tasks         Task[]
+  consentRecords ConsentRecord[]
+  leads          Lead[]
+  referrals      Referral[]
+  reviews        Review[]
+  feedbacks      CustomerFeedback[]
+  journeyEvents      CustomerJourneyEvent[]
+  properties         Property[]
+  propertyViewings   PropertyViewing[]
+  hotelReservations  HotelReservation[]
+  vehicleJobs        VehicleJob[]
 
   @@unique([businessId, phone])
   @@index([businessId])
@@ -228,9 +352,12 @@ model CatalogItem {
   duration      Int?
   isAvailable   Boolean  @default(true)
   isFeatured    Boolean  @default(false)
-  sortOrder     Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  sortOrder          Int      @default(0)
+  stockQty           Int?
+  lowStockThreshold  Int      @default(5)
+  sku                String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   catalog  Catalog  @relation(fields: [catalogId], references: [id], onDelete: Cascade)
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -269,22 +396,24 @@ model Order {
 }
 
 model Staff {
-  id          String   @id @default(uuid())
-  businessId  String
-  userId      String?
-  name        String
-  role        String   @default("staff")
-  phone       String?
-  email       String?
-  avatar      String?
-  isActive    Boolean  @default(true)
-  permissions Json     @default("{}")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(uuid())
+  businessId       String
+  userId           String?
+  businessMemberId String?  @unique
+  name             String
+  role             String   @default("staff")
+  phone            String?
+  email            String?
+  avatar           String?
+  isActive         Boolean  @default(true)
+  permissions      Json     @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  user         User?         @relation(fields: [userId], references: [id])
-  appointments Appointment[]
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user           User?           @relation(fields: [userId], references: [id])
+  businessMember BusinessMember? @relation(fields: [businessMemberId], references: [id])
+  appointments   Appointment[]
 
   @@index([businessId])
 }
@@ -321,6 +450,7 @@ model Conversation {
   staffId       String?
   status        ConversationStatus @default(ACTIVE)
   isBotHandling Boolean            @default(true)
+  metadata      Json               @default("{}")
   lastMessageAt DateTime           @default(now())
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
@@ -438,4 +568,2002 @@ model Notification {
 
   @@index([businessId])
   @@index([userId])
+}
+
+model ToolAuditLog {
+  id             String   @id @default(uuid())
+  businessId     String
+  conversationId String?
+  toolName       String
+  inputHash      String?
+  input          Json?
+  output         Json?
+  success        Boolean  @default(true)
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+
+  @@index([businessId])
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+model AnalyticsEvent {
+  id             String   @id @default(uuid())
+  businessId     String
+  conversationId String?
+  customerId     String?
+  eventType      String
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  @@index([businessId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model ConversationFunnel {
+  id             String   @id @default(uuid())
+  businessId     String
+  conversationId String
+  step           String
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  @@index([businessId, step])
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+model AnalyticsDailySummary {
+  id             String   @id @default(uuid())
+  businessId     String
+  date           DateTime @db.Date
+  chatsStarted   Int      @default(0)
+  ordersCreated  Int      @default(0)
+  revenue        Float    @default(0)
+  handoffs       Int      @default(0)
+  aiReplies      Int      @default(0)
+  tokensUsed     Int      @default(0)
+  conversionRate Float    @default(0)
+  dropOffSteps   Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  @@unique([businessId, date])
+  @@index([businessId])
+}
+
+model KnowledgeDocument {
+  id         String   @id @default(uuid())
+  businessId String
+  title      String
+  content    String
+  sourceType String   @default("manual")
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  chunks   KnowledgeChunk[]
+
+  @@index([businessId])
+}
+
+model KnowledgeChunk {
+  id         String   @id @default(uuid())
+  businessId String
+  documentId String
+  content    String
+  embedding  Json?
+  createdAt  DateTime @default(now())
+
+  document KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([documentId])
+}
+
+model FaqCandidate {
+  id              String   @id @default(uuid())
+  businessId      String
+  question        String
+  suggestedAnswer String?
+  frequency       Int      @default(1)
+  status          String   @default("pending")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([status])
+}
+
+model WorkflowLog {
+  id          String   @id @default(uuid())
+  businessId  String
+  entityType  String
+  entityId    String
+  step        String
+  status      String   @default("completed")
+  messageSent String?
+  createdAt   DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([entityId])
+}
+
+model Deal {
+  id               String    @id @default(uuid())
+  businessId       String
+  customerId       String?
+  title            String
+  value            Float     @default(0)
+  stage            DealStage @default(LEAD)
+  probability      Int       @default(10)
+  source           String?
+  notes            String?
+  assignedStaffId  String?
+  expectedCloseDate DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id])
+  tasks    Task[]
+
+  @@index([businessId])
+  @@index([stage])
+}
+
+model Task {
+  id              String       @id @default(uuid())
+  businessId      String
+  title           String
+  description     String?
+  status          TaskStatus   @default(TODO)
+  priority        TaskPriority @default(MEDIUM)
+  assignedStaffId String?
+  customerId      String?
+  dealId          String?
+  dueDate         DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id])
+  deal     Deal?    @relation(fields: [dealId], references: [id])
+
+  @@index([businessId])
+  @@index([status])
+}
+
+model AutomationWorkflow {
+  id            String   @id @default(uuid())
+  businessId    String
+  name          String
+  description   String?
+  triggerType   String
+  triggerConfig Json     @default("{}")
+  steps         Json     @default("[]")
+  isActive      Boolean  @default(true)
+  runsCount     Int      @default(0)
+  lastRunAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([triggerType])
+}
+
+model ConsentRecord {
+  id         String   @id @default(uuid())
+  businessId String
+  customerId String?
+  phone      String?
+  channel    String
+  purpose    String
+  granted    Boolean  @default(true)
+  ipAddress  String?
+  grantedAt  DateTime @default(now())
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([businessId])
+  @@index([customerId])
+}
+
+model LiveChatSession {
+  id          String   @id @default(uuid())
+  businessId  String
+  visitorId   String
+  visitorName String?
+  visitorEmail String?
+  status      String   @default("ACTIVE")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  messages LiveChatMessage[]
+
+  @@unique([businessId, visitorId])
+  @@index([businessId])
+}
+
+model LiveChatMessage {
+  id         String   @id @default(uuid())
+  sessionId  String
+  senderType String
+  content    String
+  createdAt  DateTime @default(now())
+
+  session LiveChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CONVERTED
+  LOST
+}
+
+model Lead {
+  id          String     @id @default(uuid())
+  businessId  String
+  customerId  String?
+  name        String
+  phone       String?
+  email       String?
+  source      String     @default("whatsapp")
+  status      LeadStatus @default(NEW)
+  leadScore   Int        @default(50)
+  notes       String?
+  metadata    Json       @default("{}")
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([businessId])
+  @@index([status])
+}
+
+model Referral {
+  id             String   @id @default(uuid())
+  businessId     String
+  customerId     String?
+  referrerName   String
+  referrerPhone  String?
+  referredPhone  String
+  code           String
+  rewardPoints   Int      @default(100)
+  status         String   @default("PENDING")
+  createdAt      DateTime @default(now())
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@unique([businessId, code])
+  @@index([businessId])
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  businessId String
+  customerId String?
+  rating     Int
+  comment    String?
+  source     String   @default("whatsapp")
+  isPublic   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([businessId])
+}
+
+model CustomerFeedback {
+  id         String   @id @default(uuid())
+  businessId String
+  customerId String?
+  orderId    String?
+  rating     Int?
+  category   String?
+  message    String
+  status     String   @default("NEW")
+  createdAt  DateTime @default(now())
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([businessId])
+}
+
+model ApiKey {
+  id         String    @id @default(uuid())
+  businessId String
+  name       String
+  keyHash    String
+  keyPrefix  String
+  scopes     String[]  @default(["read"])
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([keyPrefix])
+}
+
+model ChannelIntegration {
+  id         String   @id @default(uuid())
+  businessId String
+  channel    String
+  isEnabled  Boolean  @default(false)
+  config     Json     @default("{}")
+  lastSyncAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, channel])
+  @@index([businessId])
+}
+
+model Supplier {
+  id         String   @id @default(uuid())
+  businessId String
+  name       String
+  phone      String?
+  email      String?
+  category   String?
+  notes      String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  spareParts SparePart[]
+  purchaseRequisitions PurchaseRequisition[]
+  purchaseOrders       PurchaseOrder[]
+
+  @@index([businessId])
+}
+
+model Delivery {
+  id           String   @id @default(uuid())
+  businessId   String
+  orderId      String?
+  driverName   String?
+  driverPhone  String?
+  address      String?
+  trackingCode String?  @unique
+  status       String   @default("PENDING")
+  estimatedAt  DateTime?
+  deliveredAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([status])
+  @@index([trackingCode])
+}
+
+model CustomerJourneyEvent {
+  id         String   @id @default(uuid())
+  businessId String
+  customerId String
+  stage      String
+  channel    String?
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([customerId])
+}
+
+// ─── Industry: Real Estate ─────────────────────────────────────────────────
+
+model Property {
+  id          String   @id @default(uuid())
+  businessId  String
+  title       String
+  titleAr     String?
+  listingType String   @default("SALE")
+  price       Float
+  currency    String   @default("SAR")
+  bedrooms    Int?
+  bathrooms   Int?
+  areaSqm     Float?
+  location    String?
+  city        String?
+  status      String   @default("AVAILABLE")
+  description String?
+  amenities   Json     @default("[]")
+  images      Json     @default("[]")
+  customerId  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  viewings PropertyViewing[]
+
+  @@index([businessId])
+  @@index([status])
+  @@index([listingType])
+}
+
+model PropertyViewing {
+  id          String   @id @default(uuid())
+  businessId  String
+  propertyId  String
+  clientName  String
+  clientPhone String?
+  customerId  String?
+  scheduledAt DateTime
+  status      String   @default("SCHEDULED")
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([propertyId])
+  @@index([scheduledAt])
+}
+
+// ─── Industry: Hotel ───────────────────────────────────────────────────────
+
+model HotelRoom {
+  id            String   @id @default(uuid())
+  businessId    String
+  roomNumber    String
+  roomType      String   @default("STANDARD")
+  pricePerNight Float
+  maxGuests     Int      @default(2)
+  amenities     Json     @default("[]")
+  isAvailable   Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  business     Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  reservations HotelReservation[]
+
+  @@unique([businessId, roomNumber])
+  @@index([businessId])
+}
+
+model HotelReservation {
+  id          String   @id @default(uuid())
+  businessId  String
+  roomId      String
+  guestName   String
+  guestPhone  String?
+  customerId  String?
+  checkIn     DateTime
+  checkOut    DateTime
+  guests      Int      @default(1)
+  status      String   @default("PENDING")
+  totalAmount Float?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  room     HotelRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([roomId])
+  @@index([checkIn])
+  @@index([status])
+}
+
+// ─── Industry: Logistics ───────────────────────────────────────────────────
+
+model Shipment {
+  id                String    @id @default(uuid())
+  businessId        String
+  trackingNumber    String
+  senderName        String
+  senderPhone       String?
+  recipientName     String
+  recipientPhone    String?
+  origin            String
+  destination       String
+  weightKg          Float?
+  status            String    @default("PENDING")
+  carrier           String?
+  estimatedDelivery DateTime?
+  actualDelivery    DateTime?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, trackingNumber])
+  @@index([businessId])
+  @@index([status])
+}
+
+model FleetVehicle {
+  id           String   @id @default(uuid())
+  businessId   String
+  plateNumber  String
+  driverName   String?
+  driverPhone  String?
+  vehicleType  String   @default("VAN")
+  status       String   @default("AVAILABLE")
+  createdAt    DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, plateNumber])
+  @@index([businessId])
+}
+
+// ─── Industry: Education ───────────────────────────────────────────────────
+
+model Course {
+  id            String   @id @default(uuid())
+  businessId    String
+  name          String
+  nameAr        String?
+  instructor    String?
+  schedule      String?
+  duration      String?
+  price         Float?
+  maxStudents   Int?
+  enrolledCount Int      @default(0)
+  status        String   @default("ACTIVE")
+  createdAt     DateTime @default(now())
+
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  enrollments Enrollment[]
+
+  @@index([businessId])
+  @@index([status])
+}
+
+model Enrollment {
+  id           String   @id @default(uuid())
+  businessId   String
+  courseId     String
+  studentName  String
+  studentPhone String?
+  studentEmail String?
+  status       String   @default("ENROLLED")
+  enrolledAt   DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  course   Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([courseId])
+}
+
+// ─── Industry: Automotive ────────────────────────────────────────────────
+
+model VehicleJob {
+  id                 String    @id @default(uuid())
+  businessId         String
+  customerId         String?
+  vehiclePlate       String
+  vehicleMake        String?
+  vehicleModel       String?
+  issueDescription   String
+  status             String    @default("RECEIVED")
+  laborCost          Float?
+  partsCost          Float?
+  totalCost          Float?
+  estimatedCompletion DateTime?
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([status])
+  @@index([vehiclePlate])
+}
+
+// ─── Workforce / Manpower ───────────────────────────────────────────────────
+
+enum MemberRole {
+  OWNER
+  MANAGER
+  OFFICE_STAFF
+  FIELD_WORKER
+}
+
+model BusinessMember {
+  id          String     @id @default(uuid())
+  businessId  String
+  userId      String
+  role        MemberRole @default(OFFICE_STAFF)
+  managerId   String?
+  department  String?
+  title       String?
+  permissions Json       @default("{}")
+  isActive    Boolean    @default(true)
+  invitedAt   DateTime   @default(now())
+  joinedAt    DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  business  Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manager   BusinessMember?  @relation("MemberHierarchy", fields: [managerId], references: [id], onDelete: SetNull)
+  reports   BusinessMember[] @relation("MemberHierarchy")
+  staff     Staff?
+  shifts    WorkShift[]
+  attendance AttendanceRecord[]
+  managedProjects AgencyProject[] @relation("ProjectManager")
+  projectAccess   ProjectMemberAccess[]
+  memberInvites   MemberInvite[]
+
+  @@unique([businessId, userId])
+  @@index([businessId])
+  @@index([userId])
+  @@index([managerId])
+  @@index([role])
+}
+
+model MemberInvite {
+  id         String    @id @default(uuid())
+  token      String    @unique
+  businessId String
+  userId     String
+  memberId   String
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  business Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  member   BusinessMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([userId])
+  @@index([memberId])
+  @@index([expiresAt])
+}
+
+model WorkShift {
+  id         String   @id @default(uuid())
+  businessId String
+  memberId   String
+  date       DateTime
+  startTime  String
+  endTime    String
+  notes      String?
+  status     String   @default("SCHEDULED")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  member   BusinessMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([memberId])
+  @@index([date])
+}
+
+model AttendanceRecord {
+  id         String   @id @default(uuid())
+  businessId String
+  memberId   String
+  date       DateTime
+  checkInAt  DateTime?
+  checkOutAt DateTime?
+  status     String   @default("PRESENT")
+  notes      String?
+  latitude   Float?
+  longitude  Float?
+  createdAt  DateTime @default(now())
+
+  business Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  member   BusinessMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([memberId])
+  @@index([date])
+}
+
+// ─── Manpower Agency (Phase 2) ──────────────────────────────────────────────
+
+model ClientCompany {
+  id         String   @id @default(uuid())
+  businessId String
+  name       String
+  contactName String?
+  phone      String?
+  email      String?
+  address    String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business   Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  projects   AgencyProject[]
+  placements Placement[]
+  timesheets Timesheet[]
+
+  @@index([businessId])
+}
+
+model AgencyProject {
+  id              String    @id @default(uuid())
+  businessId      String
+  clientCompanyId String
+  name            String
+  code            String?
+  siteName        String?
+  siteAddress     String?
+  city            String?
+  latitude        Float?
+  longitude       Float?
+  industryTag     String?
+  contractRef     String?
+  startDate       DateTime?
+  endDate         DateTime?
+  headcount       Int?
+  managerMemberId String?
+  status          String    @default("ACTIVE")
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  clientCompany ClientCompany  @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  manager       BusinessMember? @relation("ProjectManager", fields: [managerMemberId], references: [id], onDelete: SetNull)
+  placements    Placement[]
+  timesheets    Timesheet[]
+  dailyAttendance WorkerDailyAttendance[]
+  memberAccess  ProjectMemberAccess[]
+  equipment     AgencyEquipment[]
+  functionalLocations FunctionalLocation[]
+  workRequests  WorkRequest[]
+  workOrders    WorkOrder[]
+  scheduleProjects ScheduleProject[]
+  financialEntries ProjectFinancialEntry[]
+  milestones       ProjectMilestone[]
+  subcontractorPos SubcontractorPurchaseOrder[]
+  subcontractorTimesheets SubcontractorTimesheet[]
+
+  @@index([businessId])
+  @@index([clientCompanyId])
+  @@index([managerMemberId])
+  @@index([status])
+}
+
+model AgencyEquipment {
+  id               String    @id @default(uuid())
+  businessId       String
+  name             String
+  assetNumber      String?
+  assetTag         String?
+  description      String?
+  category         String?
+  manufacturer     String?
+  model            String?
+  serialNumber     String?
+  quantity         Int       @default(1)
+  boardColumn      String    @default("STOCK")
+  sortOrder        Int       @default(0)
+  projectId        String?
+  functionalLocationId String?
+  workerProfileId  String?
+  criticality      String    @default("MEDIUM")
+  assetStatus      String    @default("ACTIVE")
+  installationDate DateTime?
+  purchaseCost     Float?
+  replacementCost  Float?
+  warrantyExpiry   DateTime?
+  drawingUrl       String?
+  documentUrls     Json?
+  photoUrls        Json?
+  issuedAt         DateTime?
+  expectedReturnAt DateTime?
+  lastInspectionAt DateTime?
+  nextInspectionAt DateTime?
+  condition        String    @default("GOOD")
+  assetQrToken     String?   @unique
+  runningHours     Float     @default(0)
+  parentEquipmentId String?
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  project            AgencyProject?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  functionalLocation FunctionalLocation? @relation(fields: [functionalLocationId], references: [id], onDelete: SetNull)
+  workerProfile      WorkerProfile?      @relation(fields: [workerProfileId], references: [id], onDelete: SetNull)
+  parentEquipment    AgencyEquipment?    @relation("EquipmentHierarchy", fields: [parentEquipmentId], references: [id], onDelete: SetNull)
+  childEquipment     AgencyEquipment[]   @relation("EquipmentHierarchy")
+  workRequests       WorkRequest[]
+  workOrders         WorkOrder[]
+  maintenancePlans   MaintenancePlan[]
+  components         AssetComponent[]
+  bomItems           AssetBomItem[]
+  meterReadings      EquipmentMeterReading[]
+  calibrations       CalibrationRecord[]
+
+  @@index([businessId])
+  @@index([boardColumn])
+  @@index([projectId])
+  @@index([functionalLocationId])
+  @@index([workerProfileId])
+  @@index([assetTag])
+  @@index([assetNumber])
+}
+
+model FunctionalLocation {
+  id          String   @id @default(uuid())
+  businessId  String
+  projectId   String?
+  parentId    String?
+  code        String
+  name        String
+  description String?
+  type        String   @default("SITE")
+  address     String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business         Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  project          AgencyProject?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  parent           FunctionalLocation?  @relation("LocationTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children         FunctionalLocation[] @relation("LocationTree")
+  equipment        AgencyEquipment[]
+  workRequests     WorkRequest[]
+  workOrders       WorkOrder[]
+  maintenancePlans MaintenancePlan[]
+  hierarchyAsAncestor   LocationHierarchy[] @relation("HierarchyAncestor")
+  hierarchyAsDescendant LocationHierarchy[] @relation("HierarchyDescendant")
+
+  @@unique([businessId, code])
+  @@index([businessId])
+  @@index([parentId])
+  @@index([projectId])
+}
+
+model LocationHierarchy {
+  id           String @id @default(uuid())
+  businessId   String
+  ancestorId   String
+  descendantId String
+  depth        Int
+
+  business   Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  ancestor   FunctionalLocation @relation("HierarchyAncestor", fields: [ancestorId], references: [id], onDelete: Cascade)
+  descendant FunctionalLocation @relation("HierarchyDescendant", fields: [descendantId], references: [id], onDelete: Cascade)
+
+  @@unique([ancestorId, descendantId])
+  @@index([businessId])
+  @@index([descendantId])
+  @@index([ancestorId, depth])
+}
+
+model WorkRequest {
+  id                   String    @id @default(uuid())
+  businessId           String
+  number               String
+  equipmentId          String?
+  functionalLocationId String?
+  projectId            String?
+  title                String
+  description          String?
+  priority             String    @default("MEDIUM")
+  status               String    @default("SUBMITTED")
+  requestedByMemberId  String?
+  approvedByMemberId   String?
+  rejectedReason       String?
+  workOrderId          String?   @unique
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  equipment          AgencyEquipment?    @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  functionalLocation FunctionalLocation? @relation(fields: [functionalLocationId], references: [id], onDelete: SetNull)
+  project            AgencyProject?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  workOrder          WorkOrder?          @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, number])
+  @@index([businessId])
+  @@index([status])
+  @@index([equipmentId])
+}
+
+model WorkOrder {
+  id                   String    @id @default(uuid())
+  businessId           String
+  number               String
+  type                 String    @default("CORRECTIVE")
+  status               String    @default("OPEN")
+  priority             String    @default("MEDIUM")
+  equipmentId          String?
+  functionalLocationId String?
+  projectId            String?
+  title                String
+  description          String?
+  assignedMemberId     String?
+  scheduledStart       DateTime?
+  scheduledEnd         DateTime?
+  completedAt          DateTime?
+  downtimeMinutes      Int?
+  laborCost            Float?
+  partsCost            Float?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  equipment          AgencyEquipment?    @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  functionalLocation FunctionalLocation? @relation(fields: [functionalLocationId], references: [id], onDelete: SetNull)
+  project            AgencyProject?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  workRequest        WorkRequest?
+  parts              WorkOrderPart[]
+  requisitions       PurchaseRequisition[]
+  pmHistory          PmHistory[]
+  inventoryTransactions InventoryTransaction[]
+  scheduleActivity      ScheduleActivity?
+
+  @@unique([businessId, number])
+  @@index([businessId])
+  @@index([status])
+  @@index([assignedMemberId])
+}
+
+model MaintenancePlan {
+  id                   String    @id @default(uuid())
+  businessId           String
+  equipmentId          String?
+  functionalLocationId String?
+  name                 String
+  pmType               String    @default("INSPECTION")
+  triggerType          String    @default("TIME")
+  preset               String?
+  intervalDays         Int?
+  intervalHours        Int?
+  meterBaseline        Float?
+  conditionField       String?
+  conditionThreshold   Float?
+  conditionOperator    String?
+  nextDueAt            DateTime?
+  lastGeneratedAt      DateTime?
+  isActive             Boolean   @default(true)
+  description          String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  equipment          AgencyEquipment?    @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  functionalLocation FunctionalLocation? @relation(fields: [functionalLocationId], references: [id], onDelete: SetNull)
+  schedules          PmSchedule[]
+  history            PmHistory[]
+
+  @@index([businessId])
+  @@index([nextDueAt])
+  @@map("pm_plans")
+}
+
+model PmSchedule {
+  id          String    @id @default(uuid())
+  businessId  String
+  planId      String
+  dueAt       DateTime?
+  dueAtHours  Float?
+  status      String    @default("PENDING")
+  generatedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  plan     MaintenancePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([planId])
+  @@index([dueAt])
+  @@index([status])
+  @@map("pm_schedules")
+}
+
+model PmHistory {
+  id              String    @id @default(uuid())
+  businessId      String
+  planId          String
+  workOrderId     String?
+  pmType          String
+  triggerType     String
+  title           String
+  dueAt           DateTime?
+  generatedAt     DateTime  @default(now())
+  completedAt     DateTime?
+  status          String    @default("GENERATED")
+  workOrderNumber String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+
+  business  Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  plan      MaintenancePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  workOrder WorkOrder?      @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([planId])
+  @@index([generatedAt])
+  @@map("pm_history")
+}
+
+model SparePart {
+  id            String   @id @default(uuid())
+  businessId    String
+  sku           String
+  name          String
+  category      String   @default("GENERAL")
+  unit          String   @default("EA")
+  stockQty      Int      @default(0)
+  reorderPoint  Int      @default(0)
+  unitCost      Float?
+  storeLocation String?
+  binCode       String?
+  supplierId    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  business       Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  supplier       Supplier?              @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  workOrderParts WorkOrderPart[]
+  transactions   InventoryTransaction[]
+  purchaseRequests PurchaseRequisition[]
+  activityMaterials ActivityMaterial[]
+  assetComponents   AssetComponent[]
+  bomItems          AssetBomItem[]
+
+  @@unique([businessId, sku])
+  @@index([businessId])
+  @@index([category])
+}
+
+model InventoryTransaction {
+  id                  String   @id @default(uuid())
+  businessId          String
+  sparePartId         String
+  type                String
+  qty                 Float
+  unitCost            Float?
+  reference           String?
+  workOrderId         String?
+  fromLocation        String?
+  toLocation          String?
+  notes               String?
+  performedByMemberId String?
+  createdAt           DateTime @default(now())
+
+  business  Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sparePart SparePart  @relation(fields: [sparePartId], references: [id], onDelete: Cascade)
+  workOrder WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([sparePartId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("inventory_transactions")
+}
+
+model WorkOrderPart {
+  id          String @id @default(uuid())
+  workOrderId String
+  sparePartId String
+  qtyPlanned  Float  @default(1)
+  qtyIssued   Float  @default(0)
+  unitCost    Float?
+
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  sparePart SparePart @relation(fields: [sparePartId], references: [id], onDelete: Cascade)
+
+  @@index([workOrderId])
+  @@index([sparePartId])
+}
+
+model PurchaseRequisition {
+  id                  String   @id @default(uuid())
+  businessId          String
+  number              String
+  workOrderId         String?
+  supplierId          String?
+  sparePartId         String?
+  source              String   @default("MANUAL")
+  status              String   @default("DRAFT")
+  lines               Json     @default("[]")
+  totalCost           Float?
+  requestedByMemberId String?
+  approvedByMemberId  String?
+  rejectedReason      String?
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workOrder     WorkOrder?     @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  supplier      Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  sparePart     SparePart?     @relation(fields: [sparePartId], references: [id], onDelete: SetNull)
+  purchaseOrder PurchaseOrder?
+
+  @@unique([businessId, number])
+  @@index([businessId])
+  @@index([status])
+  @@index([sparePartId])
+  @@map("purchase_requests")
+}
+
+model PurchaseOrder {
+  id                 String    @id @default(uuid())
+  businessId         String
+  number             String
+  requisitionId      String    @unique
+  supplierId         String?
+  status             String    @default("ISSUED")
+  lines              Json      @default("[]")
+  totalCost          Float?
+  issuedAt           DateTime  @default(now())
+  sentToVendorAt     DateTime?
+  inTransitAt        DateTime?
+  expectedDeliveryAt DateTime?
+  deliveredAt        DateTime?
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  business    Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  requisition PurchaseRequisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  supplier    Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, number])
+  @@index([businessId])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+model CmmsFinanceConfig {
+  id              String    @id @default(uuid())
+  businessId      String    @unique
+  erpSystem       String    @default("SAP")
+  erpEndpoint     String?
+  companyCode     String?
+  clientId        String?
+  apiKey          String?
+  glAccount       String    @default("6100-MAINT")
+  costCenter      String    @default("MAINT-001")
+  isConnected     Boolean   @default(false)
+  lastSyncAt      DateTime?
+  lastSyncStatus  String?
+  lastSyncMessage String?
+  annualBudget    Float     @default(600000)
+  laborHourlyRate Float     @default(85)
+  monthlyBudgets  Json      @default("{}")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("cmms_finance_config")
+}
+
+model CmmsHrConfig {
+  id              String    @id @default(uuid())
+  businessId      String    @unique
+  hrSystem        String    @default("SAP_SUCCESSFACTORS")
+  hrEndpoint      String?
+  companyCode     String?
+  apiKey          String?
+  isConnected     Boolean   @default(false)
+  lastSyncAt      DateTime?
+  lastSyncStatus  String?
+  lastSyncMessage String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("cmms_hr_config")
+}
+
+model WorkerCertification {
+  id              String    @id @default(uuid())
+  businessId      String
+  workerProfileId String
+  name            String
+  issuer          String?
+  certNumber      String?
+  issuedAt        DateTime?
+  expiresAt       DateTime?
+  status          String    @default("VALID")
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  business      Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workerProfile WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([workerProfileId])
+  @@index([expiresAt])
+  @@index([status])
+  @@map("worker_certifications")
+}
+
+model WorkerTraining {
+  id              String    @id @default(uuid())
+  businessId      String
+  workerProfileId String
+  title           String
+  trainingType    String    @default("SAFETY")
+  provider        String?
+  completedAt     DateTime?
+  dueAt           DateTime?
+  hours           Float?
+  status          String    @default("COMPLETED")
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  business      Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workerProfile WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([workerProfileId])
+  @@index([status])
+  @@map("worker_training")
+}
+
+model CmmsNotificationConfig {
+  id          String   @id @default(uuid())
+  businessId  String   @unique
+  eventRules  Json     @default("{}")
+  pushEnabled Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("cmms_notification_config")
+}
+
+model NotificationDeliveryLog {
+  id         String   @id @default(uuid())
+  businessId String
+  channel    String
+  eventType  String
+  recipient  String?
+  title      String
+  message    String
+  status     String   @default("SENT")
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([channel])
+  @@index([createdAt])
+  @@map("notification_deliveries")
+}
+
+model CmmsSecurityConfig {
+  id                String   @id @default(uuid())
+  businessId        String   @unique
+  roleMatrix        Json     @default("{}")
+  memberAssignments Json     @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("cmms_security_config")
+}
+
+// ─── Project Planning (Primavera-style) ─────────────────────────────────────
+
+model Program {
+  id          String   @id @default(uuid())
+  businessId  String
+  name        String
+  code        String?
+  description String?
+  status      String   @default("ACTIVE")
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  projects ScheduleProject[]
+
+  @@index([businessId])
+  @@map("programs")
+}
+
+model ScheduleProject {
+  id              String    @id @default(uuid())
+  businessId      String
+  programId       String?
+  agencyProjectId String?
+  name            String
+  code            String?
+  plannedStart    DateTime?
+  plannedFinish   DateTime?
+  status          String    @default("PLANNING")
+  calendarConfig  Json      @default("{}")
+  penaltyPerDay   Float     @default(15000)
+  shiftHours      Float     @default(8)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  business      Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  program       Program?        @relation(fields: [programId], references: [id], onDelete: SetNull)
+  agencyProject AgencyProject?  @relation(fields: [agencyProjectId], references: [id], onDelete: SetNull)
+  wbsNodes      WbsNode[]
+  activities    ScheduleActivity[]
+  dependencies  ActivityDependency[]
+  baselines     ScheduleBaseline[]
+  changeOrders  ScheduleChangeOrder[]
+
+  @@index([businessId])
+  @@index([programId])
+  @@index([agencyProjectId])
+  @@map("schedule_projects")
+}
+
+model WbsNode {
+  id         String   @id @default(uuid())
+  businessId String
+  projectId  String
+  parentId   String?
+  code       String
+  name       String
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business   Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  project    ScheduleProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent     WbsNode?         @relation("WbsTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children   WbsNode[]        @relation("WbsTree")
+  activities ScheduleActivity[]
+
+  @@index([businessId])
+  @@index([projectId])
+  @@index([parentId])
+  @@map("wbs_nodes")
+}
+
+model ScheduleActivity {
+  id              String    @id @default(uuid())
+  businessId      String
+  projectId       String
+  wbsNodeId       String?
+  code            String?
+  name            String
+  durationDays    Float     @default(1)
+  plannedStart    DateTime?
+  plannedFinish   DateTime?
+  percentComplete Float     @default(0)
+  status          String    @default("NOT_STARTED")
+  isCritical      Boolean   @default(false)
+  totalFloat      Float?
+  earlyStart      DateTime?
+  earlyFinish     DateTime?
+  lateStart       DateTime?
+  lateFinish      DateTime?
+  laborCost          Float?
+  materialCost       Float?
+  workOrderId        String?   @unique
+  startOverrideDays  Float?
+  equipmentTag       String?
+  sortOrder          Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  business     Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  project      ScheduleProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  wbsNode      WbsNode?              @relation(fields: [wbsNodeId], references: [id], onDelete: SetNull)
+  workOrder    WorkOrder?            @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  predecessors ActivityDependency[]  @relation("SuccActivity")
+  successors   ActivityDependency[]  @relation("PredActivity")
+  resources    ActivityResource[]
+  materials    ActivityMaterial[]
+
+  @@index([businessId])
+  @@index([projectId])
+  @@index([wbsNodeId])
+  @@map("schedule_activities")
+}
+
+model ActivityDependency {
+  id            String @id @default(uuid())
+  businessId    String
+  projectId     String
+  predecessorId String
+  successorId   String
+  type          String @default("FS")
+  lagDays       Float  @default(0)
+
+  business    Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  project     ScheduleProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  predecessor ScheduleActivity @relation("PredActivity", fields: [predecessorId], references: [id], onDelete: Cascade)
+  successor   ScheduleActivity @relation("SuccActivity", fields: [successorId], references: [id], onDelete: Cascade)
+
+  @@unique([predecessorId, successorId])
+  @@index([businessId])
+  @@index([projectId])
+  @@map("activity_dependencies")
+}
+
+model ActivityResource {
+  id              String  @id @default(uuid())
+  businessId      String
+  activityId      String
+  workerProfileId String?
+  tradeRole       String?
+  units           Float   @default(1)
+  hours           Float?
+
+  business      Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  activity      ScheduleActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  workerProfile WorkerProfile?   @relation(fields: [workerProfileId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([activityId])
+  @@map("activity_resources")
+}
+
+model ActivityMaterial {
+  id          String  @id @default(uuid())
+  businessId  String
+  activityId  String
+  sparePartId String?
+  description String?
+  plannedQty  Float   @default(1)
+  unitCost    Float?
+
+  business  Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  activity  ScheduleActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  sparePart SparePart?       @relation(fields: [sparePartId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([activityId])
+  @@map("activity_materials")
+}
+
+model ScheduleBaseline {
+  id         String   @id @default(uuid())
+  businessId String
+  projectId  String
+  name       String   @default("Baseline 1")
+  snapshot   Json     @default("{}")
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  project  ScheduleProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([projectId])
+  @@map("schedule_baselines")
+}
+
+model ScheduleChangeOrder {
+  id                  String    @id @default(uuid())
+  businessId          String
+  projectId           String
+  number              String
+  title               String
+  description         String?
+  scopeChange         String?
+  costImpactSar       Float     @default(0)
+  scheduleImpactDays  Float     @default(0)
+  status              String    @default("DRAFT")
+  affectsBaseline     Boolean   @default(true)
+  requestedByMemberId String?
+  approvedByMemberId  String?
+  approvedAt          DateTime?
+  rejectionReason     String?
+  changeLog           Json      @default("[]")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  project  ScheduleProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([projectId])
+  @@index([status])
+  @@map("schedule_change_orders")
+}
+
+model WorkerProfile {
+  id             String    @id @default(uuid())
+  businessId     String
+  memberId       String?
+  name           String
+  phone          String?
+  nationality    String?
+  iqamaNumber    String?
+  iqamaExpiry    DateTime?
+  category       String?
+  loginPassword  String?
+  attendanceQrToken String? @unique
+  defaultHours   Float?    @default(8)
+  skills         Json      @default("[]")
+  hourlyRate     Float?
+  contractType   String?
+  status         String    @default("AVAILABLE")
+  notes          String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  business   Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  placements Placement[]
+  timesheets Timesheet[]
+  dailyAttendance WorkerDailyAttendance[]
+  equipmentAssignments AgencyEquipment[]
+  certifications WorkerCertification[]
+  trainingRecords WorkerTraining[]
+  activityResources ActivityResource[]
+  leaveBalances   WorkerLeaveBalance[]
+  leaveRequests   WorkerLeaveRequest[]
+  competencies    WorkerCompetency[]
+  successionsAsKey WorkerSuccession[] @relation("SuccessionKeyWorker")
+  successionsAsBackup WorkerSuccession[] @relation("SuccessionBackupWorker")
+
+  @@index([businessId])
+  @@index([status])
+  @@index([memberId])
+}
+
+model Placement {
+  id              String    @id @default(uuid())
+  businessId      String
+  workerProfileId String
+  clientCompanyId String
+  projectId       String?
+  siteName        String?
+  startDate       DateTime
+  endDate         DateTime?
+  status          String    @default("ACTIVE")
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workerProfile WorkerProfile  @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  clientCompany ClientCompany  @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  project       AgencyProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  timesheets    Timesheet[]
+
+  @@index([businessId])
+  @@index([workerProfileId])
+  @@index([clientCompanyId])
+  @@index([projectId])
+}
+
+model Timesheet {
+  id              String   @id @default(uuid())
+  businessId      String
+  workerProfileId String
+  clientCompanyId String?
+  projectId       String?
+  placementId     String?
+  workDate        DateTime
+  regularHours    Float?
+  overtimeHours   Float?
+  hoursWorked     Float
+  status          String   @default("PENDING")
+  rejectReason    String?
+  submittedByMemberId String?
+  approvedByMemberId  String?
+  rejectedByMemberId  String?
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  lastReminderAt  DateTime?
+  overtimePay     Float?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workerProfile WorkerProfile  @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  clientCompany ClientCompany? @relation(fields: [clientCompanyId], references: [id], onDelete: SetNull)
+  project       AgencyProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  placement     Placement?     @relation(fields: [placementId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([workerProfileId])
+  @@index([projectId])
+  @@index([workDate])
+  @@index([status])
+}
+
+model WorkerDailyAttendance {
+  id              String   @id @default(uuid())
+  businessId      String
+  workerProfileId String
+  projectId       String?
+  workDate        DateTime
+  status          String   @default("PRESENT")
+  checkInMethod   String?  @default("MANUAL")
+  checkInLat      Float?
+  checkInLng      Float?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workerProfile WorkerProfile  @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  project       AgencyProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@unique([workerProfileId, projectId, workDate])
+  @@index([businessId])
+  @@index([projectId])
+  @@index([workDate])
+}
+
+model ProjectMemberAccess {
+  id          String   @id @default(uuid())
+  businessId  String
+  projectId   String
+  memberId    String
+  permissions Json     @default("[]")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  project  AgencyProject  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  member   BusinessMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, memberId])
+  @@index([businessId])
+  @@index([memberId])
+  @@index([projectId])
+}
+
+// ─── CMMS Advanced (BOM, meters, calibration) ───────────────────────────────
+
+model AssetComponent {
+  id                String   @id @default(uuid())
+  businessId        String
+  equipmentId       String
+  parentComponentId String?
+  name              String
+  partNumber        String?
+  sparePartId       String?
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  business        Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  equipment       AgencyEquipment  @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  parentComponent AssetComponent?  @relation("ComponentTree", fields: [parentComponentId], references: [id], onDelete: Cascade)
+  childComponents AssetComponent[] @relation("ComponentTree")
+  sparePart       SparePart?       @relation(fields: [sparePartId], references: [id], onDelete: SetNull)
+  bomItems        AssetBomItem[]
+
+  @@index([businessId])
+  @@index([equipmentId])
+  @@index([parentComponentId])
+  @@map("asset_components")
+}
+
+model AssetBomItem {
+  id          String @id @default(uuid())
+  businessId  String
+  equipmentId String
+  componentId String?
+  sparePartId String
+  qty         Float  @default(1)
+  notes       String?
+
+  business  Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  equipment AgencyEquipment  @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  component AssetComponent?  @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  sparePart SparePart        @relation(fields: [sparePartId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([equipmentId])
+  @@index([componentId])
+  @@map("asset_bom_items")
+}
+
+model EquipmentMeterReading {
+  id          String   @id @default(uuid())
+  businessId  String
+  equipmentId String
+  readingType String   @default("HOURS")
+  value       Float
+  recordedAt  DateTime @default(now())
+  source      String   @default("MANUAL")
+  notes       String?
+
+  business  Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  equipment AgencyEquipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([equipmentId])
+  @@index([recordedAt])
+  @@map("equipment_meter_readings")
+}
+
+model CalibrationRecord {
+  id               String    @id @default(uuid())
+  businessId       String
+  equipmentId      String?
+  instrumentName   String
+  lastCalibratedAt DateTime?
+  nextDueAt        DateTime?
+  certNumber       String?
+  status           String    @default("VALID")
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  business  Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  equipment AgencyEquipment? @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([equipmentId])
+  @@index([nextDueAt])
+  @@index([status])
+  @@map("calibration_records")
+}
+
+// ─── Project Finance Advanced ───────────────────────────────────────────────
+
+model ProjectFinancialEntry {
+  id                String   @id @default(uuid())
+  businessId        String
+  agencyProjectId   String?
+  scheduleProjectId String?
+  category          String
+  amountSar         Float
+  reference         String?
+  description       String?
+  recordedAt        DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  agencyProject AgencyProject? @relation(fields: [agencyProjectId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([agencyProjectId])
+  @@index([category])
+  @@map("project_financial_entries")
+}
+
+model ProjectMilestone {
+  id               String    @id @default(uuid())
+  businessId       String
+  agencyProjectId  String
+  name             String
+  triggerPercent   Float     @default(50)
+  invoiceAmountSar Float
+  retentionPct     Float     @default(10)
+  status           String    @default("PENDING")
+  invoicedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  business      Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  agencyProject AgencyProject @relation(fields: [agencyProjectId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([agencyProjectId])
+  @@index([status])
+  @@map("project_milestones")
+}
+
+model Subcontractor {
+  id           String   @id @default(uuid())
+  businessId   String
+  name         String
+  trade        String?
+  contactEmail String?
+  contactPhone String?
+  status       String   @default("ACTIVE")
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  business   Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  pos        SubcontractorPurchaseOrder[]
+  timesheets SubcontractorTimesheet[]
+  invoices   SubcontractorInvoice[]
+
+  @@index([businessId])
+  @@index([status])
+  @@map("subcontractors")
+}
+
+model SubcontractorPurchaseOrder {
+  id              String   @id @default(uuid())
+  businessId      String
+  subcontractorId String
+  projectId       String?
+  number          String
+  amountSar       Float
+  status          String   @default("ISSUED")
+  description     String?
+  issuedAt        DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  subcontractor Subcontractor  @relation(fields: [subcontractorId], references: [id], onDelete: Cascade)
+  project       AgencyProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@unique([businessId, number])
+  @@index([businessId])
+  @@index([subcontractorId])
+  @@map("subcontractor_pos")
+}
+
+model SubcontractorTimesheet {
+  id              String   @id @default(uuid())
+  businessId      String
+  subcontractorId String
+  projectId       String?
+  workDate        DateTime
+  hours           Float
+  amountSar       Float?
+  status          String   @default("PENDING")
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  subcontractor Subcontractor  @relation(fields: [subcontractorId], references: [id], onDelete: Cascade)
+  project       AgencyProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([subcontractorId])
+  @@index([workDate])
+  @@map("subcontractor_timesheets")
+}
+
+model SubcontractorInvoice {
+  id              String    @id @default(uuid())
+  businessId      String
+  subcontractorId String
+  number          String
+  amountSar       Float
+  status          String    @default("PENDING")
+  dueAt           DateTime?
+  paidAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  business      Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  subcontractor Subcontractor @relation(fields: [subcontractorId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, number])
+  @@index([businessId])
+  @@index([subcontractorId])
+  @@map("subcontractor_invoices")
+}
+
+// ─── HR Advanced (leave, competency, succession) ────────────────────────────
+
+model WorkerLeaveBalance {
+  id              String @id @default(uuid())
+  businessId      String
+  workerProfileId String
+  leaveType       String @default("ANNUAL")
+  balanceDays     Float  @default(30)
+  usedDays        Float  @default(0)
+
+  business      Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workerProfile WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([workerProfileId, leaveType])
+  @@index([businessId])
+  @@map("worker_leave_balances")
+}
+
+model WorkerLeaveRequest {
+  id              String   @id @default(uuid())
+  businessId      String
+  workerProfileId String
+  leaveType       String   @default("ANNUAL")
+  startDate       DateTime
+  endDate         DateTime
+  days            Float
+  status          String   @default("PENDING")
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  business      Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workerProfile WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([workerProfileId])
+  @@index([status])
+  @@map("worker_leave_requests")
+}
+
+model WorkerCompetency {
+  id              String    @id @default(uuid())
+  businessId      String
+  workerProfileId String
+  skill           String
+  grade           String    @default("B")
+  ratedByMemberId String?
+  ratedAt         DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  business      Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  workerProfile WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([workerProfileId, skill])
+  @@index([businessId])
+  @@map("worker_competencies")
+}
+
+model WorkerSuccession {
+  id                    String   @id @default(uuid())
+  businessId            String
+  workerProfileId       String
+  replacementWorkerId   String
+  role                  String?
+  priority              Int      @default(1)
+  status                String   @default("APPROVED")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  business            Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  keyWorker           WorkerProfile @relation("SuccessionKeyWorker", fields: [workerProfileId], references: [id], onDelete: Cascade)
+  replacementWorker   WorkerProfile @relation("SuccessionBackupWorker", fields: [replacementWorkerId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([workerProfileId])
+  @@map("worker_successions")
+}
+
+// Prevents duplicate WhatsApp replies when Whapi hits multiple webhook URLs or retries.
+model InboundMessageDedup {
+  id         String   @id @default(uuid())
+  businessId String
+  externalId String
+  createdAt  DateTime @default(now())
+
+  @@unique([businessId, externalId])
+  @@index([businessId, createdAt])
 }

@@ -1,0 +1,1 @@
+export { runMarketingAgent } from './index';

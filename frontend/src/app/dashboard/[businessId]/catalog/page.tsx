@@ -13,6 +13,7 @@ import {
   Star,
   Package,
 } from "lucide-react";
+import { WebsiteImportPanel } from "@/components/dashboard/website-import-panel";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ import { useApp } from "@/lib/context";
 import { t } from "@/lib/i18n";
 import { api, CatalogItem } from "@/lib/api";
 import { cn, formatCurrency } from "@/lib/utils";
+import { getCatalogLabel, normalizeBusinessType } from "@/lib/industry-config";
 
 interface ItemForm {
   nameAr: string;
@@ -58,6 +60,15 @@ export default function CatalogPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
   const [form, setForm] = useState<ItemForm>(emptyForm);
+
+  const { data: business } = useQuery({
+    queryKey: ["business", businessId],
+    queryFn: async () => (await api.getBusiness(businessId)).data,
+  });
+  const catalogTitle = getCatalogLabel(
+    normalizeBusinessType(business?.type),
+    isAr ? "ar" : "en"
+  );
 
   const { data: catalogs = [], isLoading } = useQuery({
     queryKey: ["catalog", businessId],
@@ -188,7 +199,7 @@ export default function CatalogPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">{t(locale, "dashboard", "catalog")}</h1>
+          <h1 className="text-2xl font-bold">{catalogTitle}</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isAr ? "إدارة القائمة والخدمات" : "Manage menu items and services"}
           </p>
@@ -198,6 +209,8 @@ export default function CatalogPage() {
           {t(locale, "dashboard", "add")}
         </Button>
       </div>
+
+      <WebsiteImportPanel businessId={businessId} locale={isAr ? "ar" : "en"} compact />
 
       {/* Category tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1">

@@ -19,7 +19,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { Download, TrendingUp, Users, ShoppingBag, MessageSquare, DollarSign } from "lucide-react";
+import { Download, TrendingUp, Users, ShoppingBag, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -67,6 +67,15 @@ export default function AnalyticsPage() {
     },
   });
 
+  const { data: executive } = useQuery({
+    queryKey: ["executive", businessId, range],
+    queryFn: async () => {
+      const days = range === "7d" ? 7 : range === "90d" ? 90 : range === "1y" ? 365 : 30;
+      const res = await api.getExecutiveDashboard(businessId, days);
+      return res.data;
+    },
+  });
+
   const ordersChartData = useMemo(() => {
     if (!analytics?.ordersByDay) return [];
     return Object.entries(analytics.ordersByDay).map(([date, count]) => ({
@@ -90,6 +99,22 @@ export default function AnalyticsPage() {
       value,
     }));
   }, [analytics]);
+
+  const handlePdfReport = () => {
+    const days = range === "7d" ? 7 : range === "90d" ? 90 : range === "1y" ? 365 : 30;
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const url = api.getReportPdfUrl(businessId, days);
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => r.blob())
+      .then((blob) => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `report-${businessId}.pdf`;
+        a.click();
+        toast.success(isAr ? "تم تحميل التقرير" : "Report downloaded");
+      })
+      .catch(() => toast.error(isAr ? "فشل التحميل" : "Download failed"));
+  };
 
   const handleExport = () => {
     if (!analytics) {
@@ -120,15 +145,15 @@ export default function AnalyticsPage() {
       format: (v: number) => String(v),
     },
     {
-      label: isAr ? "عملاء جدد" : "New Customers",
-      value: analytics?.newCustomers ?? 0,
-      icon: Users,
-      format: (v: number) => String(v),
+      label: isAr ? "معدل تحويل البوت" : "Bot Conversion",
+      value: analytics?.bot?.conversionRate ?? 0,
+      icon: TrendingUp,
+      format: (v: number) => `${v}%`,
     },
     {
-      label: t(locale, "dashboard", "conversations"),
-      value: analytics?.totalConversations ?? 0,
-      icon: MessageSquare,
+      label: isAr ? "عملاء محتملون" : "Hot Leads",
+      value: analytics?.bot?.intelligence?.hotLeads ?? 0,
+      icon: Users,
       format: (v: number) => String(v),
     },
   ];
@@ -157,12 +182,34 @@ export default function AnalyticsPage() {
               {isAr ? r.labelAr : r.labelEn}
             </button>
           ))}
+          <Button variant="outline" size="sm" onClick={handlePdfReport}>
+            <Download className="w-4 h-4" />
+            {isAr ? "تقرير PDF" : "PDF Report"}
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="w-4 h-4" />
             {t(locale, "dashboard", "export")}
           </Button>
         </div>
       </div>
+
+      {executive && (
+        <Card className="p-4 bg-gradient-to-r from-primary/5 to-emerald-500/5 border-primary/20">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-muted-foreground">{isAr ? "صحة الأعمال" : "Business Health Score"}</p>
+              <p className="text-3xl font-bold text-primary">{executive.businessHealthScore}/100</p>
+              <p className="text-sm mt-1 text-muted-foreground">{executive.aiInsight}</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+              <div><p className="text-lg font-bold">{executive.revenueGrowth > 0 ? "+" : ""}{executive.revenueGrowth}%</p><p className="text-xs text-muted-foreground">{isAr ? "نمو" : "Growth"}</p></div>
+              <div><p className="text-lg font-bold">{executive.avgClv}</p><p className="text-xs text-muted-foreground">CLV</p></div>
+              <div><p className="text-lg font-bold">{executive.openTasks}</p><p className="text-xs text-muted-foreground">{isAr ? "مهام" : "Tasks"}</p></div>
+              <div><p className="text-lg font-bold">{executive.lowStockCount}</p><p className="text-xs text-muted-foreground">{isAr ? "مخزون منخفض" : "Low Stock"}</p></div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {isLoading ? (
         <StatsSkeleton />
