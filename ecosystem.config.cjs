@@ -6,7 +6,7 @@ module.exports = {
   apps: [
     {
       name: 'saudichat-api',
-      cwd: './backend',
+      cwd: './saudichat-pro/backend',
       script: 'dist/index.js',
       instances: 1,
       autorestart: true,

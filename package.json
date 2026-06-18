@@ -4,11 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "cd backend && npm run dev",
+    "dev:backend": "cd saudichat-pro/backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
-    "build": "cd backend && npm run build && cd ../frontend && npm run build",
-    "db:push": "cd backend && npx prisma db push",
-    "db:seed": "cd backend && npm run db:seed"
+    "build": "cd saudichat-pro/backend && npm run build && cd ../../frontend && npm run build",
+    "db:push": "cd saudichat-pro/backend && npx prisma db push",
+    "db:seed": "cd saudichat-pro/backend && npm run db:seed"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
